@@ -10,7 +10,8 @@ type Serializer interface {
 }
 
 var serializers = map[string]Serializer{
-	"json": &JSONSerialization{},
+	"json":     &JSONSerialization{},
+	"protobuf": &ProtobufSerialization{},
 }
 
 // RegisterSerializer 注册序列化具体实现Serializer，由第三方包的init函数调用
