@@ -8,7 +8,7 @@ import (
 func newProxy(conn *Conn, name string, options ...Option) Proxy {
 	p := &serviceProxy{
 		serviceMethod: name,
-		options:       DefaultOptions(),
+		options:       defaultOptions(),
 		conn:          conn,
 	}
 
@@ -27,14 +27,7 @@ type serviceProxy struct {
 }
 
 func (p *serviceProxy) Call(ctx context.Context, request, reply interface{}, options ...Option) error {
-	var ops *Options
-	if len(options) == 0 {
-		ops = p.options
-	} else {
-		ops = new(Options)
-		for _, f := range options {
-			f(ops)
-		}
-	}
-	return p.conn.call(ctx, p.serviceMethod, request, reply, ops)
+	var ops = *p.options
+	(&ops).Apply(options)
+	return p.conn.call(ctx, p.serviceMethod, request, reply, &ops)
 }

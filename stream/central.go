@@ -44,11 +44,11 @@ func (c *central) CreateStream(d time.Duration) (*Stream, error) {
 }
 
 func (c *central) Read() (*transport.Frame, error) {
-	 f := <- c.rpcCh
-	 if f != nil {
-		 return f, nil
-	 }
-	 return nil, fmt.Errorf("read error")
+	f := <-c.rpcCh
+	if f != nil {
+		return f, nil
+	}
+	return nil, fmt.Errorf("read error")
 }
 
 func (c *central) Write(f *transport.Frame) error {
@@ -96,7 +96,7 @@ func (c *central) readPump() {
 				m.Group = f.Group
 				c.sendCh <- m
 			}
-		} else if f.Flag & transport.RpcFlag != 0 {
+		} else if f.Flag&transport.RpcFlag != 0 {
 			c.rpcCh <- f
 		}
 	}
