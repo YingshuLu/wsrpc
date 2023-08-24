@@ -1,12 +1,14 @@
 // Package rpc
 package rpc
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestServer_Run(t *testing.T) {
-	s := NewServer("test", 1000)
+	s := NewServer("test")
 	s.AddService("testservice", &TestService{},
-		WithTimeout(1000),
+		WithServiceTimeout(1000),
 		WithSerialization("json"))
 
 	s.RunTcp(":8443")

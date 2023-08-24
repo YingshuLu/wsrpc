@@ -7,7 +7,10 @@ import (
 	"sync"
 )
 
-const contextHolderKey = "_holder_"
+const (
+	contextHolderKey = "_holder_"
+	contextConnKey   = "_self_"
+)
 
 func GetServiceHolder(ctx context.Context) ServiceHolder {
 	v := ctx.Value(contextHolderKey)
@@ -21,6 +24,10 @@ func setServiceHolder(ctx context.Context, h ServiceHolder) context.Context {
 	return context.WithValue(ctx, contextHolderKey, h)
 }
 
+func setConn(ctx context.Context, c *Conn) context.Context {
+	return context.WithValue(ctx, contextConnKey, c)
+}
+
 func newServiceHolder() ServiceHolder {
 	return &serviceHolder{
 		services:     map[string]Service{},
@@ -30,12 +37,28 @@ func newServiceHolder() ServiceHolder {
 }
 
 type ServiceHolder interface {
+	// AddService add service with name
 	AddService(name string, impl interface{}, options ...Option)
+
+	// GetService get service by name
 	GetService(name string) Service
+
+	// GetConnById get connection by connection id
 	GetConnById(id string) *Conn
+
+	// GetConnByPeer get connection by connection peer
 	GetConnByPeer(peer string) *Conn
+
+	// GetConns get all available connections
 	GetConns() []*Conn
+
+	// GetCurrentConn get current connection, should only be called in service
+	GetCurrentConn(context.Context) *Conn
+
+	// AddConn add a connection into holder
 	AddConn(conn *Conn)
+
+	// RemoveConn remove connection from holder
 	RemoveConn(conn *Conn)
 }
 
@@ -91,4 +114,11 @@ func (s *serviceHolder) GetConns() []*Conn {
 		conns = append(conns, c)
 	}
 	return conns
+}
+
+func (s *serviceHolder) GetCurrentConn(ctx context.Context) *Conn {
+	if v := ctx.Value(contextConnKey); v != nil {
+		return v.(*Conn)
+	}
+	return nil
 }

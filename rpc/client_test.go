@@ -10,22 +10,30 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
-	c := NewClient("macbook", 10*time.Second)
+	c := NewClient("macbook", WithKeepaliveTimeout(10*time.Second))
 
 	c.AddService("testservice", &TestService{},
-		WithTimeout(10*time.Second),
+		WithServiceTimeout(10*time.Second),
 		WithSerialization("json"))
 
-	log.Println(c.WsConnect("ws://localhost:9090/websocket"))
+	log.Println(c.Connect(&Addr{
+		Schema: "ws",
+		Host:   "ws://localhost:9090/websocket",
+	}))
 
-	err := c.TcpConnect("localhost:8443")
+	err := c.Connect(&Addr{
+		Name:   "tcp-testserver",
+		Schema: "tcp",
+		Host:   "localhost",
+		Port:   6443,
+	})
 	if err != nil {
 		t.Log(err)
 		return
 	}
 
 	conn := c.GetConnByPeer("test")
-	proxy := conn.GetProxy("testservice.say", WithSerialization("json"), WithTimeout(10*time.Second))
+	proxy := conn.GetProxy("testservice.say", WithSerialization("json"), WithServiceTimeout(10*time.Second))
 
 	for i := 0; i < 10; i++ {
 		reply := &Reply{}

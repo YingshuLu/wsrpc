@@ -28,7 +28,7 @@ func newService(name string, receiver interface{}, options ...Option) Service {
 	s.methods = map[string]*method{}
 	s.receiver = reflect.ValueOf(receiver)
 	s.receiverType = reflect.TypeOf(receiver)
-	s.options = DefaultOptions()
+	s.options = defaultOptions()
 	Assert(s.receiverType.Kind() == reflect.Ptr, fmt.Sprintf("%s not pointer type", s.receiverType.Name()))
 
 	typ := s.receiverType
@@ -73,7 +73,7 @@ func (s *service) Invoke(ctx context.Context, methodName string, reqData []byte)
 	// call service
 	{
 		notify := make(chan interface{}, 1)
-		ctx, cancel := context.WithTimeout(ctx, s.options.Timeout)
+		ctx, cancel := context.WithTimeout(ctx, s.options.ServiceTimeout)
 		defer cancel()
 
 		go func() {

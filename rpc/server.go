@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -25,14 +24,15 @@ const (
 	Stopped
 )
 
-func NewServer(host string, timeout time.Duration) *Server {
+func NewServer(host string, options ...Option) *Server {
 	s := &Server{
 		Host:          host,
-		timeout:       timeout,
 		ServiceHolder: newServiceHolder(),
 		ws:            &websocket.Upgrader{},
+		options:       defaultOptions(),
 	}
-	s.AddService(keepalive.ServiceName, keepalive.NewService(nil))
+	s.options.Apply(options)
+	s.AddService(keepalive.ServiceName, keepalive.NewService(s.options.KeepaliveServerHandler))
 	return s
 }
 
@@ -40,9 +40,9 @@ type Server struct {
 	ServiceHolder
 	Host    string
 	ws      *websocket.Upgrader
-	timeout time.Duration
 	addr    string
 	State   int
+	options *Options
 }
 
 func (s *Server) RunWs(addr string) {
@@ -76,16 +76,14 @@ func (s *Server) RunTcp(addr string) {
 		log.Fatal(err)
 	}
 
-	id := uuid.NewString()
 	peer := "macbook-tcp"
-
 	for {
 		tc, err := ss.Accept()
 		if err != nil {
 			log.Fatal(err)
 		}
+		id := uuid.NewString()
 		conn := newConn(transport.New(tc), s, peer, id, false)
 		s.AddConn(conn)
 	}
-
 }

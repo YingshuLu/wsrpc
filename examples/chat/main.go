@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/yingshulu/wsrpc/rpc/service/keepalive"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,15 +11,28 @@ import (
 )
 
 func serverRun() {
-	s := rpc.NewServer("exchange", 20*time.Second)
+	s := rpc.NewServer("exchange")
 	s.AddService("chat.exchange", &Exchange{})
 	s.RunWs(":8443")
 }
 
+func handleKeepalive(c *rpc.Conn, pong *keepalive.Pong, err error) {
+	if err != nil {
+		c.Close()
+	} else {
+		log.Printf("client received connection pong!")
+	}
+}
+
 func client(host string) *rpc.Client {
-	c := rpc.NewClient(host, 1*time.Second)
+	c := rpc.NewClient(host, rpc.WithKeepaliveTimeout(time.Second), rpc.WithKeepaliveClientHandler(handleKeepalive))
 	c.AddService("chat.receiver", &Receiver{})
-	c.WsConnect("ws://localhost:8443/websocket")
+	err := c.Connect(&rpc.Addr{
+		Host: "ws://localhost:8443/websocket",
+	})
+	if err != nil {
+		log.Println("connect error: ", err)
+	}
 	return c
 }
 

@@ -16,7 +16,7 @@ import (
 
 func newConn(t transport.Transport, holder ServiceHolder, peer string, id string, isClient bool) *Conn {
 	c := &Conn{
-		Transport:     t,
+		t:             t,
 		peer:          peer,
 		id:            id,
 		holder:        holder,
@@ -38,7 +38,7 @@ func newConn(t transport.Transport, holder ServiceHolder, peer string, id string
 }
 
 type Conn struct {
-	transport.Transport
+	t             transport.Transport
 	peer          string
 	id            string
 	chanMap       sync.Map
@@ -48,7 +48,20 @@ type Conn struct {
 	closeNotify   chan interface{}
 	closed        bool
 	holder        ServiceHolder
+	addr          *Addr
 	log           *log.Entry
+}
+
+func (co *Conn) Peer() string {
+	return co.peer
+}
+
+func (co *Conn) ID() string {
+	return co.id
+}
+
+func (co *Conn) IsClosed() bool {
+	return co.closed
 }
 
 func (co *Conn) GetProxy(name string, options ...Option) Proxy {
@@ -86,7 +99,7 @@ func (co *Conn) call(ctx context.Context, service string, req interface{}, reply
 	co.chanMap.Store(m.ID, ch)
 	co.writeFrame(transport.NewFrame(payload))
 
-	ctx, cancel := context.WithTimeout(ctx, options.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, options.ServiceTimeout)
 	defer func() {
 		cancel()
 		co.chanMap.Delete(m.ID)
@@ -121,7 +134,7 @@ func (co *Conn) handleRpc(ctx context.Context) error {
 	co.log.Println("start reading!")
 	for !co.closed {
 		co.log.Println("reading frame!")
-		fm, err := co.Read()
+		fm, err := co.t.Read()
 		if err != nil {
 			co.log.Println("read err: ", err)
 			return err
@@ -185,6 +198,7 @@ func (co *Conn) invokeService(ctx context.Context, msg *Message) (replyMsg *Mess
 	}
 
 	ctx = setServiceHolder(ctx, co.holder)
+	ctx = setConn(ctx, co)
 	replyMsg.Data, err = s.Invoke(ctx, mname, msg.Data)
 	return
 }
@@ -199,7 +213,7 @@ func (co *Conn) writeFrameTask() {
 	for {
 		select {
 		case frame := <-co.sendingFrames:
-			err := co.Write(frame)
+			err := co.t.Write(frame)
 			if err != nil {
 				co.log.Println("write err: ", err)
 				co.Close()
@@ -224,7 +238,7 @@ func (co *Conn) Close() error {
 	co.holder.RemoveConn(co)
 	co.closeNotify <- null
 	co.closed = true
-	return co.Transport.Close()
+	return co.t.Close()
 }
 
 func (co *Conn) CloseMessage(message string) {

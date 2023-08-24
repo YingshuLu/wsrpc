@@ -38,9 +38,9 @@ func (t *TestService) Add(v int) int {
 }
 
 func main() {
-	s := rpc.NewServer("test", 10*time.Second)
+	s := rpc.NewServer("test")
 	s.AddService("testservice", &TestService{},
-		rpc.WithTimeout(10*time.Second),
+		rpc.WithServiceTimeout(10*time.Second),
 		rpc.WithSerialization("json"))
 
 	go func() {
@@ -50,7 +50,7 @@ func main() {
 			log.Println("wait connection...")
 			conn = s.GetConnByPeer("macbook")
 		}
-		proxy := conn.GetProxy("testservice.say", rpc.WithSerialization("json"), rpc.WithTimeout(10*time.Second))
+		proxy := conn.GetProxy("testservice.say", rpc.WithSerialization("json"), rpc.WithServiceTimeout(10*time.Second))
 
 		for i := 0; i < 10; i++ {
 			reply := &Reply{}
