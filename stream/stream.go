@@ -44,11 +44,11 @@ const (
 
 var null interface{}
 
-type closeFunc func(stream *Stream)
+type closeFunc func(stream *streamImpl)
 
-func newStream(id uint16, timeout time.Duration, f closeFunc) *Stream {
-	return &Stream{
-		Id:    id,
+func newStream(id uint16, timeout time.Duration, f closeFunc) *streamImpl {
+	return &streamImpl{
+		id:    id,
 		state: create,
 
 		queue:  frame.NewQueue(),
@@ -61,10 +61,36 @@ func newStream(id uint16, timeout time.Duration, f closeFunc) *Stream {
 	}
 }
 
-type Stream struct {
-	Id            uint16
-	Peer          uint16
-	Type          int
+type Stream interface {
+	// String output stream details
+	String() string
+
+	// Id local id
+	Id() uint16
+
+	// Peer remote id
+	Peer() uint16
+
+	// Open send sync to dest stream id to establish stream
+	Open(id uint16) error
+
+	// Accept open command to establish stream
+	Accept() error
+
+	// Read data
+	Read(p []byte) (int, error)
+
+	// Write data
+	Write(p []byte) (int, error)
+
+	// Close the stream
+	Close() error
+}
+
+type streamImpl struct {
+	id            uint16
+	peer          uint16
+	typ           int
 	state         state
 	index         uint16
 	handshakeDone bool
@@ -76,20 +102,28 @@ type Stream struct {
 	fragmentSize int
 	timeout      time.Duration
 	peerClosed   chan interface{}
-	closeFunc    func(stream *Stream)
+	closeFunc    func(stream *streamImpl)
 }
 
-func (s *Stream) String() string {
-	return fmt.Sprintf("[direct %d <--> %d state %d]", s.Id, s.Peer, s.state)
+func (s *streamImpl) String() string {
+	return fmt.Sprintf("[direct %d <--> %d state %d]", s.id, s.peer, s.state)
 }
 
-func (s *Stream) Open(id uint16) error {
+func (s *streamImpl) Id() uint16 {
+	return s.id
+}
+
+func (s *streamImpl) Peer() uint16 {
+	return s.peer
+}
+
+func (s *streamImpl) Open(id uint16) error {
 	if id <= reservedId || id >= maxStreamId {
 		return fmt.Errorf("open stream error, illegal stream id: %d", id)
 	}
 
-	s.Peer = id
-	s.Type = openType
+	s.peer = id
+	s.typ = openType
 	s.state = opening
 	s.sendCh <- s.openFrame()
 
@@ -113,7 +147,7 @@ func (s *Stream) Open(id uint16) error {
 		case openFrame:
 			s.fin()
 			s.state = closed
-			err = fmt.Errorf("open stream %d failure, local stream %d not listening", id, s.Id)
+			err = fmt.Errorf("open stream %d failure, local stream %d not listening", id, s.id)
 		case acceptFrame:
 			s.state = streaming
 			s.handshakeDone = true
@@ -133,8 +167,8 @@ func (s *Stream) Open(id uint16) error {
 	return err
 }
 
-func (s *Stream) Accept() error {
-	s.Type = acceptType
+func (s *streamImpl) Accept() error {
+	s.typ = acceptType
 	s.state = accepting
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
@@ -142,40 +176,40 @@ func (s *Stream) Accept() error {
 	var err error
 	select {
 	case <-ctx.Done():
-		err = fmt.Errorf("accept stream %d failure, timeout", s.Id)
+		err = fmt.Errorf("accept stream %d failure, timeout", s.id)
 		break
 	case f := <-s.recvCh:
 		dst, src := frameDstSrc(f)
-		if dst != s.Id {
+		if dst != s.id {
 			s.fin()
-			err = fmt.Errorf("accept stream %d failure, dst id not matched", s.Id)
+			err = fmt.Errorf("accept stream %d failure, dst id not matched", s.id)
 			s.state = closed
 			break
 		}
 		switch frameType(f) {
 		case openFrame:
 			s.state = streaming
-			s.Peer = src
+			s.peer = src
 			s.sendCh <- s.acceptFrame()
 			s.handshakeDone = true
 		case acceptFrame:
 			s.fin()
 			s.state = closed
-			err = fmt.Errorf("accept stream %d failure, local stream %d not opening", src, s.Id)
+			err = fmt.Errorf("accept stream %d failure, local stream %d not opening", src, s.id)
 		case streamFrame:
 			s.queue.Push(f)
 			s.state = streaming
 		case finishedFrame:
 			s.fin()
 			s.state = closed
-			err = fmt.Errorf("accept stream %d failure, finished frame", s.Id)
+			err = fmt.Errorf("accept stream %d failure, finished frame", s.id)
 		}
 	}
 
 	return err
 }
 
-func (s *Stream) handleFrame(f *transport.Frame) {
+func (s *streamImpl) handleFrame(f *transport.Frame) {
 	log.Printf("handle stream %s, frame type %d", s, frameType(f))
 	if s.state != create && s.state != destroy && s.state != streaming && s.state != timeWait && s.state != closeWait {
 		s.recvCh <- f
@@ -184,7 +218,7 @@ func (s *Stream) handleFrame(f *transport.Frame) {
 
 	switch frameType(f) {
 	case openFrame:
-		if s.Type == acceptType && !s.handshakeDone {
+		if s.typ == acceptType && !s.handshakeDone {
 			s.handshakeDone = true
 		} else {
 			s.fin()
@@ -192,7 +226,7 @@ func (s *Stream) handleFrame(f *transport.Frame) {
 		}
 	case acceptFrame:
 		// ignore
-		if s.Type == openType && !s.handshakeDone {
+		if s.typ == openType && !s.handshakeDone {
 			s.handshakeDone = true
 		} else {
 			s.fin()
@@ -211,7 +245,7 @@ func (s *Stream) handleFrame(f *transport.Frame) {
 	}
 }
 
-func (s *Stream) Read(p []byte) (int, error) {
+func (s *streamImpl) Read(p []byte) (int, error) {
 	if s.state != streaming && s.state != timeWait && s.state != closeWait {
 		return 0, fmt.Errorf("read stream %s error", s)
 	}
@@ -249,7 +283,7 @@ func (s *Stream) Read(p []byte) (int, error) {
 	return total - left, nil
 }
 
-func (s *Stream) Write(p []byte) (int, error) {
+func (s *streamImpl) Write(p []byte) (int, error) {
 	if s.state != streaming && s.state != closeWait && s.state != create {
 		return 0, fmt.Errorf("write closed stream %s with error", s)
 	}
@@ -265,7 +299,7 @@ func (s *Stream) Write(p []byte) (int, error) {
 		} else {
 			dataLen = len(p)
 		}
-		f := s.streamFrame(s.Peer, s.nextIndex(), p[index:index+dataLen])
+		f := s.streamFrame(s.peer, s.nextIndex(), p[index:index+dataLen])
 		index += dataLen
 		p = p[index:]
 		s.sendCh <- f
@@ -273,7 +307,7 @@ func (s *Stream) Write(p []byte) (int, error) {
 	return 0, nil
 }
 
-func (s *Stream) Close() error {
+func (s *streamImpl) Close() error {
 	defer s.destroy()
 
 	switch s.state {
@@ -302,57 +336,57 @@ func (s *Stream) Close() error {
 	return nil
 }
 
-func (s *Stream) destroy() {
+func (s *streamImpl) destroy() {
 	if s.closeFunc != nil && s.state != destroy {
 		s.closeFunc(s)
 		s.state = destroy
 	}
 }
 
-func (s *Stream) fin() {
-	if s.Peer > 0 {
-		f := s.finishedFrame(s.Peer, s.nextIndex())
+func (s *streamImpl) fin() {
+	if s.peer > 0 {
+		f := s.finishedFrame(s.peer, s.nextIndex())
 		s.sendCh <- f
 	}
 }
 
-func (s *Stream) openFrame() *transport.Frame {
+func (s *streamImpl) openFrame() *transport.Frame {
 	f := newFrame(nil)
 	f.Opcode = transport.Open
-	setFrameDstSrc(f, s.Peer, s.Id)
+	setFrameDstSrc(f, s.peer, s.id)
 	f.Flag |= transport.NextFlag
 	return f
 }
 
-func (s *Stream) acceptFrame() *transport.Frame {
+func (s *streamImpl) acceptFrame() *transport.Frame {
 	f := newFrame(nil)
 	f.Opcode = transport.Open
-	setFrameDstSrc(f, s.Peer, s.Id)
+	setFrameDstSrc(f, s.peer, s.id)
 	f.Flag |= transport.NextFlag
 	f.Flag |= transport.AckFlag
 	return f
 }
 
-func (s *Stream) streamFrame(id, index uint16, payload []byte) *transport.Frame {
+func (s *streamImpl) streamFrame(id, index uint16, payload []byte) *transport.Frame {
 	f := newFrame(payload)
 	f.Opcode = transport.Stream
-	setFrameDstSrc(f, s.Peer, s.Id)
+	setFrameDstSrc(f, s.peer, s.id)
 	f.Group = id
 	f.Index = index
 	f.Flag |= transport.NextFlag
 	return f
 }
 
-func (s *Stream) finishedFrame(id, index uint16) *transport.Frame {
+func (s *streamImpl) finishedFrame(id, index uint16) *transport.Frame {
 	f := newFrame(nil)
 	f.Opcode = transport.Close
-	setFrameDstSrc(f, s.Peer, s.Id)
+	setFrameDstSrc(f, s.peer, s.id)
 	f.Group = id
 	f.Index = index
 	return f
 }
 
-func (s *Stream) nextIndex() uint16 {
+func (s *streamImpl) nextIndex() uint16 {
 	s.index++
 	return s.index
 }

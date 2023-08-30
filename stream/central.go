@@ -15,28 +15,64 @@ const (
 	reservedId   uint16 = 255
 )
 
+// NewCentral create new central for stream
+func NewCentral(t transport.Transport) Central {
+	c := &central{
+		t:       t,
+		sendCh:  make(chan *transport.Frame),
+		rpcCh:   make(chan *transport.Frame),
+		stopped: make(chan interface{}),
+	}
+	go c.readPump()
+	go c.writePump()
+	return c
+}
+
+type Central interface {
+	// Stream get existing Stream by id
+	Stream(uint16) Stream
+
+	// CreateStream create new Stream
+	CreateStream(time.Duration) (Stream, error)
+
+	// Read a RPC frame
+	Read() (*transport.Frame, error)
+
+	// Write a RPC frame
+	Write(f *transport.Frame) error
+
+	// Close the connection
+	Close() error
+}
+
 type central struct {
 	t           transport.Transport
 	sendCh      chan *transport.Frame
 	rpcCh       chan *transport.Frame
 	stopped     chan interface{}
 	lock        sync.RWMutex
-	streamArray [maxStreamNum]*Stream
+	streamArray [maxStreamNum]*streamImpl
 }
 
-func (c *central) Stream(id uint16) *Stream {
-	return c.streamArray[id]
+func (c *central) Stream(id uint16) Stream {
+	s := c.streamArray[id]
+	if s == nil {
+		return nil
+	}
+	return s
 }
 
 // CreateStream create an idle stream with io timeout duration
-func (c *central) CreateStream(d time.Duration) (*Stream, error) {
+func (c *central) CreateStream(d time.Duration) (s Stream, err error) {
 	for i := int(reservedId + 1); i < maxStreamNum; i++ {
 		if c.Stream(uint16(i)) == nil {
 			c.lock.Lock()
-			s, err := c.createStream(uint16(i), d)
+			if c.Stream(uint16(i)) == nil {
+				s, err = c.createStream(uint16(i), d)
+			}
 			c.lock.Unlock()
-			if err == nil {
-				return s, nil
+			if s != nil {
+				return
 			}
 		}
 	}
@@ -66,7 +102,7 @@ func (c *central) Close() error {
 	return c.t.Close()
 }
 
-func (c *central) createStream(id uint16, timeout time.Duration) (*Stream, error) {
+func (c *central) createStream(id uint16, timeout time.Duration) (Stream, error) {
 	if c.streamArray[id] != nil {
 		return nil, fmt.Errorf("create stream error, %d exists already", id)
 	}
@@ -103,9 +139,11 @@ func (c *central) readPump() {
 }
 
 func (c *central) writePump() {
-	for {
+	centralStopped := false
+	for !centralStopped {
 		select {
 		case <-c.stopped:
+			centralStopped = true
 
 		case f := <-c.sendCh:
 			err := c.t.Write(f)
@@ -119,8 +157,8 @@ func (c *central) writePump() {
 	}
 }
 
-func (c *central) destroyStream(s *Stream) {
+func (c *central) destroyStream(s *streamImpl) {
 	c.lock.Lock()
-	c.streamArray[s.Id] = nil
+	c.streamArray[s.id] = nil
 	c.lock.Unlock()
 }

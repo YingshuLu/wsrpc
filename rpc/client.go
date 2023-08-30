@@ -4,12 +4,12 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"github.com/google/uuid"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"github.com/yingshulu/wsrpc/rpc/service/keepalive"
@@ -31,7 +31,6 @@ func NewClient(host string, options ...Option) *Client {
 type Client struct {
 	ServiceHolder
 	Host    string
-	addr    string
 	stopped chan interface{}
 	options *Options
 }
@@ -89,7 +88,9 @@ func (c *Client) onConnected(t transport.Transport, peer, id string, a *Addr) {
 func (c *Client) scheduleKeepalive() {
 	methodName := keepalive.ServiceName + ".keepalive"
 	ctx := context.Background()
-	for {
+
+	clientStopped := false
+	for !clientStopped {
 		select {
 
 		case <-time.After(c.options.KeepaliveTimeout):
@@ -121,7 +122,7 @@ func (c *Client) scheduleKeepalive() {
 			for _, conn := range conns {
 				conn.Close()
 			}
-			break
+			clientStopped = true
 		}
 	}
 }
