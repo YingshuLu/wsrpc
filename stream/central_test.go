@@ -63,7 +63,7 @@ func TestOpenAccept(t *testing.T) {
 		return
 	}
 
-	id := ss.Id
+	id := ss.Id()
 	time.Sleep(time.Second)
 	go func() {
 		s, err := cc.CreateStream(timeout)
@@ -78,14 +78,14 @@ func TestOpenAccept(t *testing.T) {
 		}
 		t.Logf("[cc] open stream %s success", s)
 
-		s.sendCh <- s.streamFrame(s.Peer, 3, []byte("3. good message."))
+		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).peer, 3, []byte("3. good message."))
 		_, err = s.Write([]byte("1. hello world, "))
 		if err != nil {
 			t.Log("[cc] write stream error: ", err)
 			return
 		}
 		t.Log("[cc] write stream success")
-		s.sendCh <- s.streamFrame(s.Peer, 2, []byte("2. this is second, "))
+		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).peer, 2, []byte("2. this is second, "))
 
 		b := make([]byte, 128)
 		n, err := s.Read(b)
