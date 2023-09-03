@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+option go_package = "wsrpc.echo";
+
+message Ping {
+  int64 id = 1;
+  string title = 2;
+  string content = 3;
+}
+
+message Pong {
+  int64 id = 1;
+  string content = 2;
+}
