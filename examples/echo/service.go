@@ -14,7 +14,7 @@ func (e *EchoService) Serve(ctx context.Context, request *Ping, reply *Pong) err
 	fmt.Println("from request: ", request.Content)
 	reply.Id = request.Id
 
-	var conn = rpc.GetServiceHolder(ctx).GetCurrentConn(ctx)
+	var conn = rpc.GetConn(ctx)
 	var proxy = conn.GetProxy("misty.echo.serve", rpc.WithSerialization("protobuf"))
 	request.Content = "ping from go-wsrpc"
 	err := proxy.Call(ctx, request, reply)
