@@ -30,7 +30,6 @@ func newConn(t transport.Transport, holder ServiceHolder, peer string, id string
 		"ID":       c.id,
 		"Peer":     c.peer,
 		"IsClient": c.isClient,
-		"IsClosed": c.closed,
 	})
 
 	c.run(context.Background())
@@ -48,7 +47,7 @@ type Conn struct {
 	closeNotify   chan interface{}
 	closed        bool
 	holder        ServiceHolder
-	addr          *Addr
+	addr          string
 	log           *log.Entry
 }
 
@@ -131,15 +130,12 @@ func (co *Conn) handleRpc(ctx context.Context) error {
 		co.Close()
 	}()
 
-	co.log.Println("start reading!")
 	for !co.closed {
-		co.log.Println("reading frame!")
 		fm, err := co.t.Read()
 		if err != nil {
 			co.log.Println("read err: ", err)
 			return err
 		}
-		co.log.Println("read ok!")
 
 		msg, err := co.getMessage(fm)
 		if err != nil {
@@ -150,7 +146,6 @@ func (co *Conn) handleRpc(ctx context.Context) error {
 		switch msg.Type {
 		case RequestType:
 			go func() {
-				co.log.Println("invoke: ", msg.Service)
 				replyMsg := co.invokeService(ctx, msg)
 				payload, _ := replyMsg.Encode()
 				rm := transport.NewFrame(payload)
@@ -219,7 +214,6 @@ func (co *Conn) writeFrameTask() {
 				co.Close()
 				return
 			}
-			co.log.Println("send ok!")
 		case <-co.closeNotify:
 			break
 		}
@@ -234,7 +228,7 @@ func (co *Conn) Close() error {
 	if co.closed {
 		return nil
 	}
-	co.log.Println("connection: ", co.peer, " closed")
+	co.log.Printf("connection: %s closed", co.peer)
 	co.holder.RemoveConn(co)
 	co.closeNotify <- null
 	co.closed = true

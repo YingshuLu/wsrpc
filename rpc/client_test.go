@@ -5,8 +5,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	log "github.com/sirupsen/logrus"
 )
 
 func TestNewClient(t *testing.T) {
@@ -16,17 +14,9 @@ func TestNewClient(t *testing.T) {
 		WithServiceTimeout(10*time.Second),
 		WithSerialization("json"))
 
-	log.Println(c.Connect(&Addr{
-		Schema: "ws",
-		Host:   "ws://localhost:9090/websocket",
-	}))
+	//log.Println(c.Connect("ws://localhost:9090/websocket"))
 
-	err := c.Connect(&Addr{
-		Name:   "tcp-testserver",
-		Schema: "tcp",
-		Host:   "localhost",
-		Port:   6443,
-	})
+	err := c.Connect("tcp://localhost:8443")
 	if err != nil {
 		t.Log(err)
 		return

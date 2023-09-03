@@ -26,7 +26,7 @@ func (t *TestService) Say(ctx context.Context, h *Hello, reply *Reply) error {
 }
 
 func (t *TestService) PanicSay(ctx context.Context, h *Hello, reply *Reply) error {
-	panic("test panic: " + h.Something)
+	return nil
 }
 
 func (t *TestService) wisp(ctx context.Context, h *Hello, reply *Reply) error {
@@ -38,7 +38,9 @@ func (t *TestService) Add(v int) int {
 }
 
 func main() {
-	s := rpc.NewServer("test")
+	s := rpc.NewServer("test", rpc.WithCredentialValidator(func(s string) error {
+		return nil
+	}))
 	s.AddService("testservice", &TestService{},
 		rpc.WithServiceTimeout(10*time.Second),
 		rpc.WithSerialization("json"))
@@ -63,7 +65,7 @@ func main() {
 		}
 	}()
 
-	go s.RunWs(":9090")
+	go s.RunWs("ws://+:9090/websocket")
 	s.RunTcp(":8443")
 
 }
