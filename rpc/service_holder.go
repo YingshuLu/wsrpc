@@ -20,6 +20,13 @@ func GetServiceHolder(ctx context.Context) ServiceHolder {
 	return v.(ServiceHolder)
 }
 
+func GetConn(ctx context.Context) *Conn {
+	if v := ctx.Value(contextConnKey); v != nil {
+		return v.(*Conn)
+	}
+	return nil
+}
+
 func setServiceHolder(ctx context.Context, h ServiceHolder) context.Context {
 	return context.WithValue(ctx, contextHolderKey, h)
 }
@@ -51,9 +58,6 @@ type ServiceHolder interface {
 
 	// GetConns get all available connections
 	GetConns() []*Conn
-
-	// GetCurrentConn get current connection, should only be called in service
-	GetCurrentConn(context.Context) *Conn
 
 	// AddConn add a connection into holder
 	AddConn(conn *Conn)
@@ -114,11 +118,4 @@ func (s *serviceHolder) GetConns() []*Conn {
 		conns = append(conns, c)
 	}
 	return conns
-}
-
-func (s *serviceHolder) GetCurrentConn(ctx context.Context) *Conn {
-	if v := ctx.Value(contextConnKey); v != nil {
-		return v.(*Conn)
-	}
-	return nil
 }

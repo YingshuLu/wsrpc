@@ -48,6 +48,7 @@ type Conn struct {
 	closed        bool
 	holder        ServiceHolder
 	addr          string
+	values        sync.Map
 	log           *log.Entry
 }
 
@@ -65,6 +66,18 @@ func (co *Conn) IsClosed() bool {
 
 func (co *Conn) GetProxy(name string, options ...Option) Proxy {
 	return newProxy(co, strings.ToLower(name), options...)
+}
+
+func (co *Conn) WithValue(k string, v interface{}) {
+	co.values.Store(k, v)
+}
+
+func (co *Conn) Value(k string) interface{} {
+	v, ok := co.values.Load(k)
+	if ok {
+		return v
+	}
+	return nil
 }
 
 func (co *Conn) run(ctx context.Context) {
