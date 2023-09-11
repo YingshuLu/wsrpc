@@ -28,7 +28,9 @@ func NewServer(host string, options ...Option) *Server {
 		options:       defaultOptions(),
 	}
 	s.options.Apply(options)
-	s.AddService(keepalive.ServiceName, keepalive.NewService(s.options.KeepaliveServerHandler))
+	s.AddService(keepalive.ServiceName,
+		keepalive.NewService(s.options.KeepaliveServerHandler),
+		WithSerialization("protobuf"))
 	return s
 }
 

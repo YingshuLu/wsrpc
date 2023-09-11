@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+option go_package = "wsrpc.keepalive";
+
+message Ping {
+  string content = 1;
+}
+
+message Pong {
+  string content = 1;
+}
