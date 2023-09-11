@@ -118,7 +118,7 @@ func (c *Client) scheduleKeepalive() {
 					ping = &keepalive.Ping{}
 				}
 				pong := &keepalive.Pong{}
-				err := conn.GetProxy(methodName).Call(ctx, ping, pong)
+				err := conn.GetProxy(methodName).Call(ctx, ping, pong, WithSerialization("protobuf"))
 				if c.options.KeepaliveClientHandler != nil {
 					c.options.KeepaliveClientHandler(conn, pong, err)
 				}
