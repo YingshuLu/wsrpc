@@ -3,11 +3,7 @@ package rpc
 
 import (
 	"time"
-
-	"github.com/yingshulu/wsrpc/rpc/service/keepalive"
 )
-
-const defaultKeepaliveTimeout = 20 * time.Minute
 
 type Option = func(*Options)
 
@@ -41,39 +37,11 @@ func WithSerialization(e string) Option {
 	}
 }
 
-func WithKeepaliveTimeout(d time.Duration) Option {
-	return func(op *Options) {
-		op.KeepaliveTimeout = d
-	}
-}
-
-func WithKeepaliveClientNewPing(f func() *keepalive.Ping) Option {
-	return func(op *Options) {
-		op.KeepaliveClientNewPing = f
-	}
-}
-
-func WithKeepaliveClientHandler(f func(*Conn, *keepalive.Pong, error)) Option {
-	return func(op *Options) {
-		op.KeepaliveClientHandler = f
-	}
-}
-
-func WithKeepaliveServerHandler(f keepalive.Handler) Option {
-	return func(op *Options) {
-		op.KeepaliveServerHandler = f
-	}
-}
-
 type Options struct {
-	KeepaliveClientNewPing func() *keepalive.Ping
-	KeepaliveClientHandler func(*Conn, *keepalive.Pong, error)
-	KeepaliveServerHandler keepalive.Handler
-	KeepaliveTimeout       time.Duration
-	ServiceTimeout         time.Duration
-	SerializationType      string
-	CredentialProvider     CredentialProvider
-	CredentialValidator    CredentialValidator
+	ServiceTimeout      time.Duration
+	SerializationType   string
+	CredentialProvider  CredentialProvider
+	CredentialValidator CredentialValidator
 }
 
 func (op *Options) Apply(options []Option) {
@@ -84,7 +52,6 @@ func (op *Options) Apply(options []Option) {
 
 func defaultOptions() *Options {
 	return &Options{
-		KeepaliveTimeout:  defaultKeepaliveTimeout,
 		ServiceTimeout:    5 * time.Second,
 		SerializationType: "json",
 	}

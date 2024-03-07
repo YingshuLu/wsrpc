@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/yingshulu/wsrpc/rpc"
-	"github.com/yingshulu/wsrpc/rpc/service/keepalive"
 )
 
 func serverRun() {
@@ -17,16 +16,8 @@ func serverRun() {
 	s.RunTcp(":8081")
 }
 
-func handleKeepalive(c *rpc.Conn, pong *keepalive.Pong, err error) {
-	if err != nil {
-		c.Close()
-	} else {
-		log.Printf("client received connection pong!")
-	}
-}
-
 func client(host string) *rpc.Client {
-	c := rpc.NewClient(host, rpc.WithKeepaliveTimeout(time.Second), rpc.WithKeepaliveClientHandler(handleKeepalive))
+	c := rpc.NewClient(host)
 	c.AddService("chat.receiver", &Receiver{})
 	//err := c.Connect("ws://localhost:8443/websocket")
 	err := c.Connect("tcp://localhost:8081")

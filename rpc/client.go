@@ -2,16 +2,13 @@
 package rpc
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
-	"github.com/yingshulu/wsrpc/rpc/service/keepalive"
 	"github.com/yingshulu/wsrpc/transport"
 )
 
@@ -23,7 +20,6 @@ func NewClient(host string, options ...Option) *Client {
 		options:       defaultOptions(),
 	}
 	c.options.Apply(options)
-	go c.scheduleKeepalive()
 	return c
 }
 
@@ -94,46 +90,4 @@ func (c *Client) onConnected(t transport.Transport, peer, id string, a string) {
 	conn := newConn(t, c, peer, id, true)
 	conn.addr = a
 	c.AddConn(conn)
-}
-
-func (c *Client) scheduleKeepalive() {
-	methodName := keepalive.ServiceName + ".keepalive"
-	ctx := context.Background()
-
-	clientStopped := false
-	for !clientStopped {
-		select {
-
-		case <-time.After(c.options.KeepaliveTimeout):
-			conns := c.GetConns()
-			for _, conn := range conns {
-				if conn.closed {
-					continue
-				}
-
-				var ping *keepalive.Ping
-				if c.options.KeepaliveClientNewPing != nil {
-					ping = c.options.KeepaliveClientNewPing()
-				} else {
-					ping = &keepalive.Ping{}
-				}
-				pong := &keepalive.Pong{}
-				err := conn.GetProxy(methodName).Call(ctx, ping, pong, WithSerialization("protobuf"))
-				if c.options.KeepaliveClientHandler != nil {
-					c.options.KeepaliveClientHandler(conn, pong, err)
-				}
-				if err != nil {
-					log.Printf("connection: %s keepalive error: %v", conn.peer, err)
-					conn.Close()
-				}
-			}
-
-		case <-c.stopped:
-			conns := c.GetConns()
-			for _, conn := range conns {
-				conn.Close()
-			}
-			clientStopped = true
-		}
-	}
 }

@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
-	"github.com/yingshulu/wsrpc/rpc/service/keepalive"
 	"github.com/yingshulu/wsrpc/transport"
 )
 
@@ -28,9 +27,6 @@ func NewServer(host string, options ...Option) *Server {
 		options:       defaultOptions(),
 	}
 	s.options.Apply(options)
-	s.AddService(keepalive.ServiceName,
-		keepalive.NewService(s.options.KeepaliveServerHandler),
-		WithSerialization("protobuf"))
 	return s
 }
 

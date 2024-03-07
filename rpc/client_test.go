@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
-	c := NewClient("macbook", WithKeepaliveTimeout(1*time.Second))
+	c := NewClient("macbook")
 
 	c.AddService("testservice", &TestService{},
 		WithServiceTimeout(10*time.Second),
