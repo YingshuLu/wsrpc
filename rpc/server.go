@@ -39,6 +39,10 @@ type Server struct {
 	options *Options
 }
 
+func (s *Server) Options() *Options {
+	return s.options
+}
+
 func (s *Server) RunWs(addr string) {
 	s.addr = addr
 	u, err := url.Parse(s.addr)
@@ -91,6 +95,9 @@ func (s *Server) wsAccept(w http.ResponseWriter, r *http.Request) {
 
 	conn := newConn(transport.NewWebSocket(wsc), s, peer, id, false)
 	s.AddConn(conn)
+	if s.options.ConnectionEstablishedEvent != nil {
+		s.options.ConnectionEstablishedEvent(conn)
+	}
 	return
 }
 
@@ -116,5 +123,8 @@ func (s *Server) RunTcp(addr string) {
 
 		conn := newConn(transport.New(tc), s, peer, id, false)
 		s.AddConn(conn)
+		if s.options.ConnectionEstablishedEvent != nil {
+			s.options.ConnectionEstablishedEvent(conn)
+		}
 	}
 }

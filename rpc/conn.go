@@ -64,6 +64,10 @@ func (co *Conn) IsClosed() bool {
 	return co.closed
 }
 
+func (co *Conn) IsClient() bool {
+	return co.isClient
+}
+
 func (co *Conn) GetProxy(name string, options ...Option) Proxy {
 	return newProxy(co, strings.ToLower(name), options...)
 }
@@ -242,7 +246,12 @@ func (co *Conn) Close() error {
 		return nil
 	}
 	co.log.Printf("connection: %s closed", co.peer)
-	co.holder.RemoveConn(co)
+	defer func() {
+		co.holder.RemoveConn(co)
+		if options := co.holder.Options(); options != nil && options.ConnectionClosedEvent != nil {
+			options.ConnectionClosedEvent(co)
+		}
+	}()
 	co.closeNotify <- null
 	co.closed = true
 	return co.t.Close()

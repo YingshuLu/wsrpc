@@ -30,6 +30,10 @@ type Client struct {
 	options *Options
 }
 
+func (c *Client) Options() *Options {
+	return c.options
+}
+
 func (c *Client) Connect(a string) error {
 	u, err := url.Parse(a)
 	if err != nil {
@@ -90,4 +94,7 @@ func (c *Client) onConnected(t transport.Transport, peer, id string, a string) {
 	conn := newConn(t, c, peer, id, true)
 	conn.addr = a
 	c.AddConn(conn)
+	if c.options.ConnectionEstablishedEvent != nil {
+		c.options.ConnectionClosedEvent(conn)
+	}
 }

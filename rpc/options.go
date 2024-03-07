@@ -11,6 +11,10 @@ type CredentialValidator = func(string) error
 
 type CredentialProvider = func() string
 
+type OnConnectionEstablishedEvent = func(*Conn)
+
+type OnConnectionClosedEvent = func(*Conn)
+
 // WithCredentialProvider set credential provider for client when connecting to server
 func WithCredentialProvider(f CredentialProvider) Option {
 	return func(op *Options) {
@@ -22,6 +26,18 @@ func WithCredentialProvider(f CredentialProvider) Option {
 func WithCredentialValidator(f CredentialValidator) Option {
 	return func(op *Options) {
 		op.CredentialValidator = f
+	}
+}
+
+func WithOnConnectionEstablishedEvent(e OnConnectionEstablishedEvent) Option {
+	return func(op *Options) {
+		op.ConnectionEstablishedEvent = e
+	}
+}
+
+func WithOnConnectionClosedEvent(e OnConnectionClosedEvent) Option {
+	return func(op *Options) {
+		op.ConnectionClosedEvent = e
 	}
 }
 
@@ -38,10 +54,12 @@ func WithSerialization(e string) Option {
 }
 
 type Options struct {
-	ServiceTimeout      time.Duration
-	SerializationType   string
-	CredentialProvider  CredentialProvider
-	CredentialValidator CredentialValidator
+	ServiceTimeout             time.Duration
+	SerializationType          string
+	CredentialProvider         CredentialProvider
+	CredentialValidator        CredentialValidator
+	ConnectionEstablishedEvent OnConnectionEstablishedEvent
+	ConnectionClosedEvent      OnConnectionClosedEvent
 }
 
 func (op *Options) Apply(options []Option) {

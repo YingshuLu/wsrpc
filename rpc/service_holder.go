@@ -64,6 +64,8 @@ type ServiceHolder interface {
 
 	// RemoveConn remove connection from holder
 	RemoveConn(conn *Conn)
+
+	Options() *Options
 }
 
 type serviceHolder struct {
@@ -118,4 +120,8 @@ func (s *serviceHolder) GetConns() []*Conn {
 		conns = append(conns, c)
 	}
 	return conns
+}
+
+func (s *serviceHolder) Options() *Options {
+	return nil
 }
