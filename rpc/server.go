@@ -94,6 +94,9 @@ func (s *Server) wsAccept(w http.ResponseWriter, r *http.Request) {
 	log.Println("accept: ", r.Header)
 
 	conn := newConn(transport.NewWebSocket(wsc), s, peer, id, false)
+	if oldConn := s.GetConnByPeer(conn.Peer()); oldConn != nil {
+		oldConn.Close()
+	}
 	s.AddConn(conn)
 	if s.options.ConnectionEstablishedEvent != nil {
 		s.options.ConnectionEstablishedEvent(conn)
@@ -122,6 +125,9 @@ func (s *Server) RunTcp(addr string) {
 		}
 
 		conn := newConn(transport.New(tc), s, peer, id, false)
+		if oldConn := s.GetConnByPeer(conn.Peer()); oldConn != nil {
+			oldConn.Close()
+		}
 		s.AddConn(conn)
 		if s.options.ConnectionEstablishedEvent != nil {
 			s.options.ConnectionEstablishedEvent(conn)

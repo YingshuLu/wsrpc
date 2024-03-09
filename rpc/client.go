@@ -93,6 +93,9 @@ func (c *Client) Close() {
 func (c *Client) onConnected(t transport.Transport, peer, id string, a string) {
 	conn := newConn(t, c, peer, id, true)
 	conn.addr = a
+	if oldConn := c.GetConnByPeer(conn.Peer()); oldConn != nil {
+		oldConn.Close()
+	}
 	c.AddConn(conn)
 	if c.options.ConnectionEstablishedEvent != nil {
 		c.options.ConnectionClosedEvent(conn)
