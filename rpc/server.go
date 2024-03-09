@@ -64,8 +64,9 @@ func (s *Server) RunWs(addr string) {
 		port = ":" + port
 	}
 
-	http.HandleFunc(u.Path, s.wsAccept)
-	log.Fatal(http.ListenAndServe(port, nil))
+	hs := http.NewServeMux()
+	hs.HandleFunc(u.Path, s.wsAccept)
+	log.Fatal(http.ListenAndServe(port, hs))
 }
 
 func (s *Server) wsAccept(w http.ResponseWriter, r *http.Request) {
