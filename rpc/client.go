@@ -98,6 +98,6 @@ func (c *Client) onConnected(t transport.Transport, peer, id string, a string) {
 	}
 	c.AddConn(conn)
 	if c.options.ConnectionEstablishedEvent != nil {
-		c.options.ConnectionClosedEvent(conn)
+		c.options.ConnectionEstablishedEvent(conn)
 	}
 }
