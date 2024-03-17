@@ -43,6 +43,10 @@ func (s *Server) Options() *Options {
 	return s.options
 }
 
+func (s *Server) RegisterWs(path string, mux *http.ServeMux) {
+	mux.HandleFunc(path, s.wsAccept)
+}
+
 func (s *Server) RunWs(addr string) {
 	s.addr = addr
 	u, err := url.Parse(s.addr)
@@ -65,7 +69,7 @@ func (s *Server) RunWs(addr string) {
 	}
 
 	hs := http.NewServeMux()
-	hs.HandleFunc(u.Path, s.wsAccept)
+	s.RegisterWs(u.Path, hs)
 	log.Fatal(http.ListenAndServe(port, hs))
 }
 
