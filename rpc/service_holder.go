@@ -7,9 +7,11 @@ import (
 	"sync"
 )
 
+type contextKey int
+
 const (
-	contextHolderKey = "_holder_"
-	contextConnKey   = "_self_"
+	contextHolderKey contextKey = iota
+	contextConnKey
 )
 
 func GetServiceHolder(ctx context.Context) ServiceHolder {

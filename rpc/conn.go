@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,7 +15,7 @@ import (
 	"github.com/yingshulu/wsrpc/transport"
 )
 
-func newConn(t transport.Transport, holder ServiceHolder, peer string, id string, isClient bool) *Conn {
+func newConn(t transport.Transport, holder ServiceHolder, peer string, id string, isClient bool, header http.Header) *Conn {
 	c := &Conn{
 		t:             t,
 		peer:          peer,
@@ -23,6 +24,7 @@ func newConn(t transport.Transport, holder ServiceHolder, peer string, id string
 		sendingFrames: make(chan *transport.Frame),
 		closeNotify:   make(chan interface{}),
 		isClient:      isClient,
+		header:        header,
 	}
 
 	c.log = log.WithFields(log.Fields{
@@ -48,6 +50,7 @@ type Conn struct {
 	closed        bool
 	holder        ServiceHolder
 	addr          string
+	header        http.Header
 	values        sync.Map
 	log           *log.Entry
 }
@@ -66,6 +69,17 @@ func (co *Conn) IsClosed() bool {
 
 func (co *Conn) IsClient() bool {
 	return co.isClient
+}
+
+func (co *Conn) Addr() string {
+	return co.addr
+}
+
+func (co *Conn) HeaderValue(key string) string {
+	if co.header != nil {
+		return co.header.Get(key)
+	}
+	return ""
 }
 
 func (co *Conn) GetProxy(name string, options ...Option) Proxy {
@@ -232,7 +246,6 @@ func (co *Conn) writeFrameTask() {
 				return
 			}
 		case <-co.closeNotify:
-			break
 		}
 	}
 }

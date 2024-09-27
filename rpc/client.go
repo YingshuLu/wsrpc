@@ -50,7 +50,7 @@ func (c *Client) Connect(a string) error {
 }
 
 func (c *Client) wsConnect(a string) error {
-	header := http.Header{}
+	var header = c.options.RequestHeader.Clone()
 	header.Add(hostIdKey, c.Host)
 	if c.options.CredentialProvider != nil {
 		header.Add(authKey, c.options.CredentialProvider())
@@ -62,7 +62,7 @@ func (c *Client) wsConnect(a string) error {
 
 	id := resp.Header.Get(connIdKey)
 	peer := resp.Header.Get(hostIdKey)
-	c.onConnected(transport.NewWebSocket(wsc), peer, id, a)
+	c.onConnected(transport.NewWebSocket(wsc), peer, id, a, resp.Header)
 	return nil
 }
 
@@ -82,7 +82,7 @@ func (c *Client) dialConnect(a string, typ string) error {
 		log.Printf("client negotiate error: %s", err)
 		return err
 	}
-	c.onConnected(transport.New(tc), peer, id, a)
+	c.onConnected(transport.New(tc), peer, id, a, nil)
 	return nil
 }
 
@@ -90,8 +90,8 @@ func (c *Client) Close() {
 	c.stopped <- null
 }
 
-func (c *Client) onConnected(t transport.Transport, peer, id string, a string) {
-	conn := newConn(t, c, peer, id, true)
+func (c *Client) onConnected(t transport.Transport, peer, id string, a string, header http.Header) {
+	conn := newConn(t, c, peer, id, true, header)
 	conn.addr = a
 	if oldConn := c.GetConnByPeer(conn.Peer()); oldConn != nil {
 		oldConn.Close()

@@ -136,13 +136,11 @@ func suitableMethod(m reflect.Method) bool {
 	}
 
 	mt := m.Type
-	if !(mt.NumIn() == 4 && mt.NumOut() == 1 &&
+	return mt.NumIn() == 4 &&
+		mt.NumOut() == 1 &&
 		mt.In(0).Kind() == reflect.Ptr &&
 		mt.In(1) == typeOfContext &&
 		mt.In(2).Kind() == reflect.Ptr &&
 		mt.In(3).Kind() == reflect.Ptr &&
-		mt.Out(0) == typeOfError) {
-		return false
-	}
-	return true
+		mt.Out(0) == typeOfError
 }

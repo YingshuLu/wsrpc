@@ -19,16 +19,16 @@ type Reply struct {
 type TestService struct {
 }
 
-func (t *TestService) Say(ctx context.Context, h *Hello, reply *Reply) error {
+func (t *TestService) Say(_ context.Context, h *Hello, reply *Reply) error {
 	reply.Message = "reply: " + h.Something
 	return nil
 }
 
-func (t *TestService) PanicSay(ctx context.Context, h *Hello, reply *Reply) error {
+func (t *TestService) PanicSay(_ context.Context, h *Hello, reply *Reply) error {
 	panic("test panic: " + h.Something)
 }
 
-func (t *TestService) wisp(ctx context.Context, h *Hello, reply *Reply) error {
+func (t *TestService) wisp(_ context.Context, _ *Hello, _ *Reply) error {
 	return nil
 }
 

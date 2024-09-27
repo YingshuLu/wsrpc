@@ -2,6 +2,7 @@
 package rpc
 
 import (
+	"net/http"
 	"time"
 )
 
@@ -53,9 +54,23 @@ func WithSerialization(e string) Option {
 	}
 }
 
+func WithRequestHeader(header http.Header) Option {
+	return func(op *Options) {
+		op.RequestHeader = header
+	}
+}
+
+func WithResponseHeader(header http.Header) Option {
+	return func(op *Options) {
+		op.ResponseHeader = header
+	}
+}
+
 type Options struct {
 	ServiceTimeout             time.Duration
 	SerializationType          string
+	RequestHeader              http.Header
+	ResponseHeader             http.Header
 	CredentialProvider         CredentialProvider
 	CredentialValidator        CredentialValidator
 	ConnectionEstablishedEvent OnConnectionEstablishedEvent
@@ -72,5 +87,7 @@ func defaultOptions() *Options {
 	return &Options{
 		ServiceTimeout:    5 * time.Second,
 		SerializationType: "json",
+		RequestHeader:     http.Header{},
+		ResponseHeader:    http.Header{},
 	}
 }
