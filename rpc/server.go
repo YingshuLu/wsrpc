@@ -3,6 +3,7 @@ package rpc
 
 import (
 	"fmt"
+	"github.com/yingshulu/wsrpc/stream"
 	"net"
 	"net/http"
 	"net/url"
@@ -98,14 +99,7 @@ func (s *Server) wsAccept(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Println("accept: ", r.Header)
 
-	conn := newConn(transport.NewWebSocket(wsc), s, peer, id, false, r.Header)
-	if oldConn := s.GetConnByPeer(conn.Peer()); oldConn != nil {
-		oldConn.Close()
-	}
-	s.AddConn(conn)
-	if s.options.ConnectionEstablishedEvent != nil {
-		s.options.ConnectionEstablishedEvent(conn)
-	}
+	s.onAccept(transport.NewWebSocket(wsc), peer, id, r.Header)
 }
 
 func (s *Server) RunTcp(addr string) {
@@ -128,13 +122,23 @@ func (s *Server) RunTcp(addr string) {
 			continue
 		}
 
-		conn := newConn(transport.New(tc), s, peer, id, false, nil)
-		if oldConn := s.GetConnByPeer(conn.Peer()); oldConn != nil {
-			oldConn.Close()
-		}
-		s.AddConn(conn)
-		if s.options.ConnectionEstablishedEvent != nil {
-			s.options.ConnectionEstablishedEvent(conn)
-		}
+		s.onAccept(transport.New(tc), peer, id, nil)
+	}
+}
+
+func (s *Server) onAccept(t transport.Transport, peer string, id string, header http.Header) {
+	var central stream.Central
+	if s.options.EnableStream {
+		central = stream.NewCentral(t)
+		t = central
+	}
+	conn := newConn(t, s, peer, id, false, header)
+	conn.central = central
+	if oldConn := s.GetConnByPeer(conn.Peer()); oldConn != nil {
+		oldConn.Close()
+	}
+	s.AddConn(conn)
+	if s.options.ConnectionEstablishedEvent != nil {
+		s.options.ConnectionEstablishedEvent(conn)
 	}
 }

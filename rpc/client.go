@@ -9,6 +9,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/yingshulu/wsrpc/stream"
 	"github.com/yingshulu/wsrpc/transport"
 )
 
@@ -91,8 +93,15 @@ func (c *Client) Close() {
 }
 
 func (c *Client) onConnected(t transport.Transport, peer, id string, a string, header http.Header) {
+	var central stream.Central
+	if c.options.EnableStream {
+		central = stream.NewCentral(t)
+		t = central
+	}
+
 	conn := newConn(t, c, peer, id, true, header)
 	conn.addr = a
+	conn.central = central
 	if oldConn := c.GetConnByPeer(conn.Peer()); oldConn != nil {
 		oldConn.Close()
 	}

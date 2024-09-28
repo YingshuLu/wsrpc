@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -42,22 +43,26 @@ func TestOpenAccept(t *testing.T) {
 	tc.readChan, tc.writeChan = ts.writeChan, ts.readChan
 
 	cc := &central{
-		t:      tc,
-		sendCh: make(chan *transport.Frame),
+		t:       tc,
+		sendCh:  make(chan *transport.Frame),
+		streams: map[uint16]*streamImpl{},
 	}
+	cc.ctx, cc.cancel = context.WithCancel(context.Background())
 
 	go cc.readPump()
 	go cc.writePump()
 
 	cs := &central{
-		t:      ts,
-		sendCh: make(chan *transport.Frame),
+		t:       ts,
+		sendCh:  make(chan *transport.Frame),
+		streams: map[uint16]*streamImpl{},
 	}
+	cs.ctx, cs.cancel = context.WithCancel(context.Background())
 
 	go cs.readPump()
 	go cs.writePump()
 
-	ss, err := cs.CreateStream(timeout)
+	ss, err := cs.Listen(timeout)
 	if err != nil {
 		t.Log("[cc] open stream error: ", err)
 		return
@@ -66,26 +71,21 @@ func TestOpenAccept(t *testing.T) {
 	id := ss.Id()
 	time.Sleep(time.Second)
 	go func() {
-		s, err := cc.CreateStream(timeout)
-		if err != nil {
-			t.Log("[cc] open stream error: ", err)
-			return
-		}
-		err = s.Open(id)
+		s, err := cc.Open(id, timeout)
 		if err != nil {
 			t.Log("[cc] open stream error: ", err)
 			return
 		}
 		t.Logf("[cc] open stream %s success", s)
 
-		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).peer, 3, []byte("3. good message."))
+		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).id, 3, []byte("3. good message."))
 		_, err = s.Write([]byte("1. hello world, "))
 		if err != nil {
 			t.Log("[cc] write stream error: ", err)
 			return
 		}
 		t.Log("[cc] write stream success")
-		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).peer, 2, []byte("2. this is second, "))
+		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).id, 2, []byte("2. this is second, "))
 
 		b := make([]byte, 128)
 		n, err := s.Read(b)
@@ -103,7 +103,7 @@ func TestOpenAccept(t *testing.T) {
 		t.Logf("[cc] fin stream %s success", s)
 	}()
 
-	err = ss.Accept()
+	err = ss.Accept(timeout)
 	if err != nil {
 		t.Logf("[cs] accept stream error %v", err)
 		return

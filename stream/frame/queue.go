@@ -71,10 +71,11 @@ func (l *list) first() *node {
 }
 
 func (l *list) Peek() *transport.Frame {
-	poppedIndex := uint16(0)
+	var poppedIndex uint16
 	if l.popped != nil {
 		poppedIndex = l.popped.frame.Index
 	}
+
 	if l.first() != nil && l.first().frame.Index == poppedIndex+1 {
 		return l.first().frame
 	}
@@ -83,8 +84,12 @@ func (l *list) Peek() *transport.Frame {
 
 func (l *list) Pop() *transport.Frame {
 	if f := l.first(); f != nil {
-		l.popped = l.first()
-		l.head.next = l.first().next
+		if f.frame.Index < 65535 {
+			l.popped = f
+		} else {
+			l.popped = nil
+		}
+		l.head.next = f.next
 		return f.frame
 	}
 	return nil

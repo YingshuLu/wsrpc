@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -30,7 +31,6 @@ const (
 	acceptFrame
 	streamFrame
 	finishedFrame
-	rpcFrame
 )
 
 const (
@@ -46,17 +46,18 @@ var null interface{}
 
 type closeFunc func(stream *streamImpl)
 
-func newStream(id uint16, timeout time.Duration, f closeFunc) *streamImpl {
+func newStream(ctx context.Context, id uint16, timeout time.Duration, f closeFunc) *streamImpl {
 	return &streamImpl{
 		id:    id,
 		state: create,
 
-		queue:  frame.NewQueue(),
-		recvCh: make(chan *transport.Frame),
+		queue: frame.NewQueue(),
+		revCh: make(chan *transport.Frame),
 
 		fragmentSize: defaultFragmentSize,
-		timeout:      timeout,
+		idleTimeout:  timeout,
 		peerClosed:   make(chan interface{}),
+		ctx:          ctx,
 		closeFunc:    f,
 	}
 }
@@ -68,14 +69,8 @@ type Stream interface {
 	// Id local id
 	Id() uint16
 
-	// Peer remote id
-	Peer() uint16
-
-	// Open send sync to dest stream id to establish stream
-	Open(id uint16) error
-
 	// Accept open command to establish stream
-	Accept() error
+	Accept(timeout time.Duration) error
 
 	// Read data
 	Read(p []byte) (int, error)
@@ -89,53 +84,48 @@ type Stream interface {
 
 type streamImpl struct {
 	id            uint16
-	peer          uint16
 	typ           int
 	state         state
-	index         uint16
+	index         atomic.Uint32
 	handshakeDone bool
-
-	queue  frame.Queue
-	recvCh chan *transport.Frame
-	sendCh chan<- *transport.Frame
+	queue         frame.Queue
+	revCh         chan *transport.Frame
+	sendCh        chan<- *transport.Frame
 
 	fragmentSize int
-	timeout      time.Duration
+	idleTimeout  time.Duration
 	peerClosed   chan interface{}
+	ctx          context.Context
 	closeFunc    func(stream *streamImpl)
 }
 
 func (s *streamImpl) String() string {
-	return fmt.Sprintf("[direct %d <--> %d state %d]", s.id, s.peer, s.state)
+	direct := "----> remote"
+	if s.typ == acceptType {
+		direct = "<---- remote"
+	}
+	return fmt.Sprintf("[stream %d %s state %d]", s.id, direct, s.state)
 }
 
 func (s *streamImpl) Id() uint16 {
 	return s.id
 }
 
-func (s *streamImpl) Peer() uint16 {
-	return s.peer
-}
-
-func (s *streamImpl) Open(id uint16) error {
-	if id <= reservedId || id >= maxStreamId {
-		return fmt.Errorf("open stream error, illegal stream id: %d", id)
-	}
-
-	s.peer = id
+func (s *streamImpl) open(d time.Duration) error {
+	id := s.id
 	s.typ = openType
 	s.state = opening
 	s.sendCh <- s.openFrame()
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	ctx, cancel := context.WithTimeout(s.ctx, d)
 	defer cancel()
 	var err error
 	select {
 	case <-ctx.Done():
-		err = fmt.Errorf("open stream %d failure, timeout", id)
+		err = fmt.Errorf("open stream %d failure, %v", id, ctx.Err())
 
-	case f := <-s.recvCh:
-		_, src := frameDstSrc(f)
+	case f := <-s.revCh:
+		src := f.Group
 		if src != id {
 			s.fin()
 			s.state = closed
@@ -167,19 +157,23 @@ func (s *streamImpl) Open(id uint16) error {
 	return err
 }
 
-func (s *streamImpl) Accept() error {
+func (s *streamImpl) Accept(timeout time.Duration) error {
 	s.typ = acceptType
 	s.state = accepting
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+
+	if timeout <= 0 {
+		timeout = s.idleTimeout
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, timeout)
 	defer cancel()
 
 	var err error
 	select {
 	case <-ctx.Done():
-		err = fmt.Errorf("accept stream %d failure, timeout", s.id)
-		break
-	case f := <-s.recvCh:
-		dst, src := frameDstSrc(f)
+		err = fmt.Errorf("accept stream %d failure %v", s.id, ctx.Err())
+
+	case f := <-s.revCh:
+		dst := f.Group
 		if dst != s.id {
 			s.fin()
 			err = fmt.Errorf("accept stream %d failure, dst id not matched", s.id)
@@ -189,13 +183,12 @@ func (s *streamImpl) Accept() error {
 		switch frameType(f) {
 		case openFrame:
 			s.state = streaming
-			s.peer = src
 			s.sendCh <- s.acceptFrame()
 			s.handshakeDone = true
 		case acceptFrame:
 			s.fin()
 			s.state = closed
-			err = fmt.Errorf("accept stream %d failure, local stream %d not opening", src, s.id)
+			err = fmt.Errorf("accept stream %d failure, local stream %d not opening", f.Group, s.id)
 		case streamFrame:
 			s.queue.Push(f)
 			s.state = streaming
@@ -212,7 +205,7 @@ func (s *streamImpl) Accept() error {
 func (s *streamImpl) handleFrame(f *transport.Frame) {
 	log.Printf("handle stream %s, frame type %d", s, frameType(f))
 	if s.state != create && s.state != destroy && s.state != streaming && s.state != timeWait && s.state != closeWait {
-		s.recvCh <- f
+		s.revCh <- f
 		return
 	}
 
@@ -233,7 +226,7 @@ func (s *streamImpl) handleFrame(f *transport.Frame) {
 			s.state = closed
 		}
 	case streamFrame:
-		s.recvCh <- f
+		s.revCh <- f
 
 	case finishedFrame:
 		log.Printf("[fin] stream %s read fin frame", s)
@@ -255,13 +248,15 @@ func (s *streamImpl) Read(p []byte) (int, error) {
 		return 0, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	ctx, cancel := context.WithTimeout(s.ctx, s.idleTimeout)
 	defer cancel()
+
+	// reorder frames
 	for s.queue.Peek() == nil {
 		select {
 		case <-ctx.Done():
-			return 0, fmt.Errorf("read stream %s error, timeout", s)
-		case f := <-s.recvCh:
+			return 0, fmt.Errorf("read stream %s error %v", s, ctx.Err())
+		case f := <-s.revCh:
 			s.queue.Push(f)
 		}
 	}
@@ -287,7 +282,9 @@ func (s *streamImpl) Write(p []byte) (int, error) {
 	if s.state != streaming && s.state != closeWait && s.state != create {
 		return 0, fmt.Errorf("write closed stream %s with error", s)
 	}
-	if len(p) == 0 {
+
+	total := len(p)
+	if total == 0 {
 		return 0, nil
 	}
 
@@ -299,17 +296,20 @@ func (s *streamImpl) Write(p []byte) (int, error) {
 		} else {
 			dataLen = len(p)
 		}
-		f := s.streamFrame(s.peer, s.nextIndex(), p[index:index+dataLen])
+		f := s.streamFrame(s.id, s.nextIndex(), p[index:index+dataLen])
 		index += dataLen
 		p = p[index:]
 		s.sendCh <- f
 	}
-	return 0, nil
+	return total, nil
 }
 
 func (s *streamImpl) Close() error {
 	defer s.destroy()
+	return s.close()
+}
 
+func (s *streamImpl) close() error {
 	switch s.state {
 	case closed, finSent, timeWait:
 		return nil
@@ -325,11 +325,12 @@ func (s *streamImpl) Close() error {
 		s.state = timeWait
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	ctx, cancel := context.WithTimeout(s.ctx, s.idleTimeout)
 	defer cancel()
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("close stream %s timeout", s)
+		return fmt.Errorf("close stream %s error %v", s, ctx.Err())
+
 	case <-s.peerClosed:
 		s.state = closed
 	}
@@ -344,16 +345,14 @@ func (s *streamImpl) destroy() {
 }
 
 func (s *streamImpl) fin() {
-	if s.peer > 0 {
-		f := s.finishedFrame(s.peer, s.nextIndex())
-		s.sendCh <- f
-	}
+	f := s.finishedFrame(s.id, s.nextIndex())
+	s.sendCh <- f
 }
 
 func (s *streamImpl) openFrame() *transport.Frame {
 	f := newFrame(nil)
 	f.Opcode = transport.Open
-	setFrameDstSrc(f, s.peer, s.id)
+	f.Group = s.id
 	f.Flag |= transport.NextFlag
 	return f
 }
@@ -361,7 +360,7 @@ func (s *streamImpl) openFrame() *transport.Frame {
 func (s *streamImpl) acceptFrame() *transport.Frame {
 	f := newFrame(nil)
 	f.Opcode = transport.Open
-	setFrameDstSrc(f, s.peer, s.id)
+	f.Group = s.id
 	f.Flag |= transport.NextFlag
 	f.Flag |= transport.AckFlag
 	return f
@@ -370,7 +369,6 @@ func (s *streamImpl) acceptFrame() *transport.Frame {
 func (s *streamImpl) streamFrame(id, index uint16, payload []byte) *transport.Frame {
 	f := newFrame(payload)
 	f.Opcode = transport.Stream
-	setFrameDstSrc(f, s.peer, s.id)
 	f.Group = id
 	f.Index = index
 	f.Flag |= transport.NextFlag
@@ -380,15 +378,16 @@ func (s *streamImpl) streamFrame(id, index uint16, payload []byte) *transport.Fr
 func (s *streamImpl) finishedFrame(id, index uint16) *transport.Frame {
 	f := newFrame(nil)
 	f.Opcode = transport.Close
-	setFrameDstSrc(f, s.peer, s.id)
 	f.Group = id
 	f.Index = index
 	return f
 }
 
 func (s *streamImpl) nextIndex() uint16 {
-	s.index++
-	return s.index
+	if s.index.CompareAndSwap(65535, 1) {
+		return 1
+	}
+	return uint16(s.index.Add(1))
 }
 
 func newFrame(payload []byte) *transport.Frame {
@@ -398,23 +397,7 @@ func newFrame(payload []byte) *transport.Frame {
 		Payload: payload,
 	}
 	f.Flag |= transport.BinFlag
-
-	for _, c := range payload {
-		f.Reserved ^= c
-	}
 	return f
-}
-
-// from frame receiver side
-func setFrameDstSrc(f *transport.Frame, dst, src uint16) {
-	f.CheckSum = uint32(dst)<<16 | uint32(src)
-}
-
-// from frame receiver side
-func frameDstSrc(f *transport.Frame) (uint16, uint16) {
-	src := uint16(f.CheckSum & (uint32(1<<17) - 1))
-	dst := uint16(f.CheckSum >> 16)
-	return dst, src
 }
 
 func frameType(f *transport.Frame) int {

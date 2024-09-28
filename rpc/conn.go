@@ -12,6 +12,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/yingshulu/wsrpc/codec"
+	"github.com/yingshulu/wsrpc/stream"
 	"github.com/yingshulu/wsrpc/transport"
 )
 
@@ -52,6 +53,7 @@ type Conn struct {
 	addr          string
 	header        http.Header
 	values        sync.Map
+	central       stream.Central
 	log           *log.Entry
 }
 
@@ -61,6 +63,10 @@ func (co *Conn) Peer() string {
 
 func (co *Conn) ID() string {
 	return co.id
+}
+
+func (co *Conn) StreamCentral() stream.Central {
+	return co.central
 }
 
 func (co *Conn) IsClosed() bool {

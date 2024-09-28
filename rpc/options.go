@@ -66,11 +66,18 @@ func WithResponseHeader(header http.Header) Option {
 	}
 }
 
+func WithEnableStream(enable bool) Option {
+	return func(op *Options) {
+		op.EnableStream = enable
+	}
+}
+
 type Options struct {
 	ServiceTimeout             time.Duration
 	SerializationType          string
 	RequestHeader              http.Header
 	ResponseHeader             http.Header
+	EnableStream               bool
 	CredentialProvider         CredentialProvider
 	CredentialValidator        CredentialValidator
 	ConnectionEstablishedEvent OnConnectionEstablishedEvent
