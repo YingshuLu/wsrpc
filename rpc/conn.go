@@ -133,7 +133,7 @@ func (co *Conn) call(ctx context.Context, service string, req interface{}, reply
 
 	ch := make(chan *Message, 1)
 	co.chanMap.Store(m.ID, ch)
-	co.writeFrame(transport.NewFrame(payload))
+	co.writeFrame(transport.NewRpcFrame(payload))
 
 	ctx, cancel := context.WithTimeout(ctx, options.ServiceTimeout)
 	defer func() {
@@ -185,7 +185,7 @@ func (co *Conn) handleRpc(ctx context.Context) error {
 			go func() {
 				replyMsg := co.invokeService(ctx, msg)
 				payload, _ := replyMsg.Encode()
-				rm := transport.NewFrame(payload)
+				rm := transport.NewRpcFrame(payload)
 				co.writeFrame(rm)
 			}()
 
@@ -287,5 +287,5 @@ func (co *Conn) CloseMessage(message string) {
 		Error: message,
 	}
 	payload, _ := msg.Encode()
-	co.writeFrame(transport.NewFrame(payload))
+	co.writeFrame(transport.NewRpcFrame(payload))
 }

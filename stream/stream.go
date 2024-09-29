@@ -47,7 +47,7 @@ var null interface{}
 type closeFunc func(stream *streamImpl)
 
 func newStream(ctx context.Context, id uint16, timeout time.Duration, f closeFunc) *streamImpl {
-	return &streamImpl{
+	s := &streamImpl{
 		id:    id,
 		state: create,
 
@@ -57,9 +57,10 @@ func newStream(ctx context.Context, id uint16, timeout time.Duration, f closeFun
 		fragmentSize: defaultFragmentSize,
 		idleTimeout:  timeout,
 		peerClosed:   make(chan interface{}),
-		ctx:          ctx,
 		closeFunc:    f,
 	}
+	s.ctx, s.cancel = context.WithCancel(ctx)
+	return s
 }
 
 type Stream interface {
@@ -96,7 +97,10 @@ type streamImpl struct {
 	idleTimeout  time.Duration
 	peerClosed   chan interface{}
 	ctx          context.Context
+	cancel       context.CancelFunc
 	closeFunc    func(stream *streamImpl)
+
+	leftStreamFrames atomic.Int32
 }
 
 func (s *streamImpl) String() string {
@@ -226,6 +230,7 @@ func (s *streamImpl) handleFrame(f *transport.Frame) {
 			s.state = closed
 		}
 	case streamFrame:
+		s.leftStreamFrames.Add(1)
 		s.revCh <- f
 
 	case finishedFrame:
@@ -234,12 +239,16 @@ func (s *streamImpl) handleFrame(f *transport.Frame) {
 			s.peerClosed <- null
 		} else {
 			s.state = closeWait
+			// exit Read
+			if s.leftStreamFrames.Load() == 0 {
+				s.cancel()
+			}
 		}
 	}
 }
 
 func (s *streamImpl) Read(p []byte) (int, error) {
-	if s.state != streaming && s.state != timeWait && s.state != closeWait {
+	if s.state != streaming && s.state != timeWait {
 		return 0, fmt.Errorf("read stream %s error", s)
 	}
 
@@ -257,6 +266,7 @@ func (s *streamImpl) Read(p []byte) (int, error) {
 		case <-ctx.Done():
 			return 0, fmt.Errorf("read stream %s error %v", s, ctx.Err())
 		case f := <-s.revCh:
+			s.leftStreamFrames.Add(-1)
 			s.queue.Push(f)
 		}
 	}
@@ -306,6 +316,7 @@ func (s *streamImpl) Write(p []byte) (int, error) {
 
 func (s *streamImpl) Close() error {
 	defer s.destroy()
+	defer s.cancel()
 	return s.close()
 }
 
@@ -325,11 +336,11 @@ func (s *streamImpl) close() error {
 		s.state = timeWait
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.idleTimeout)
-	defer cancel()
+	timeout := time.After(5 * time.Second)
 	select {
-	case <-ctx.Done():
-		return fmt.Errorf("close stream %s error %v", s, ctx.Err())
+	case <-timeout:
+		s.state = closed
+		return fmt.Errorf("close stream %s timeout", s)
 
 	case <-s.peerClosed:
 		s.state = closed

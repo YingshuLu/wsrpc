@@ -37,6 +37,12 @@ func NewFrame(data []byte) *Frame {
 	}
 }
 
+func NewRpcFrame(data []byte) *Frame {
+	f := NewFrame(data)
+	f.Flag |= RpcFlag
+	return f
+}
+
 type Frame struct {
 	Magic    byte
 	Flag     byte

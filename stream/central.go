@@ -88,12 +88,13 @@ func (c *central) Listen(idle time.Duration) (Stream, error) {
 	return nil, fmt.Errorf("no more idle stream")
 }
 
-func (c *central) Read() (*transport.Frame, error) {
-	f := <-c.rpcCh
-	if f != nil {
-		return f, nil
+func (c *central) Read() (f *transport.Frame, err error) {
+	select {
+	case <-c.ctx.Done():
+		err = c.ctx.Err()
+	case f = <-c.rpcCh:
 	}
-	return nil, fmt.Errorf("read error")
+	return
 }
 
 func (c *central) Write(f *transport.Frame) error {
