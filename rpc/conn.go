@@ -30,7 +30,7 @@ func newConn(t transport.Transport, holder ServiceHolder, peer string, id string
 
 	c.log = log.WithFields(log.Fields{
 		"Name":     "Connection",
-		"ID":       c.id,
+		"Host":     holder.HostId(),
 		"Peer":     c.peer,
 		"IsClient": c.isClient,
 	})
@@ -55,6 +55,10 @@ type Conn struct {
 	values        sync.Map
 	central       stream.Central
 	log           *log.Entry
+}
+
+func (co *Conn) Host() string {
+	return co.holder.HostId()
 }
 
 func (co *Conn) Peer() string {
@@ -170,13 +174,14 @@ func (co *Conn) handleRpc(ctx context.Context) error {
 	for !co.closed {
 		fm, err := co.t.Read()
 		if err != nil {
-			co.log.Println("read err: ", err)
+			co.log.Errorf("read err: %v ", err)
+			co.Close()
 			return err
 		}
 
 		msg, err := co.getMessage(fm)
 		if err != nil {
-			co.log.Println("get message err: ", err)
+			co.log.Errorf("get message err: %v", err)
 			return err
 		}
 
@@ -194,8 +199,9 @@ func (co *Conn) handleRpc(ctx context.Context) error {
 			if ok {
 				v.(chan *Message) <- msg
 			}
+
 		case CloseType:
-			co.log.Println("get close msg")
+			co.log.Warn("get close msg")
 			return co.Close()
 		}
 	}
@@ -247,7 +253,7 @@ func (co *Conn) writeFrameTask() {
 		case frame := <-co.sendingFrames:
 			err := co.t.Write(frame)
 			if err != nil {
-				co.log.Println("write err: ", err)
+				co.log.Errorf("write err: %v", err)
 				co.Close()
 				return
 			}
@@ -264,7 +270,7 @@ func (co *Conn) Close() error {
 	if co.closed {
 		return nil
 	}
-	co.log.Printf("connection: %s closed", co.peer)
+	co.log.Warn("connection closed")
 	defer func() {
 		co.holder.RemoveConn(co)
 		if options := co.holder.Options(); options != nil && options.ConnectionClosedEvent != nil {

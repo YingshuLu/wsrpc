@@ -55,7 +55,7 @@ func compose() {
 
 	go send(robot, kamlu.Host)
 	go send(kamlu, robot.Host)
-	time.Sleep(10 * time.Second)
+	time.Sleep(3 * time.Second)
 	kamlu.Close()
 	robot.Close()
 }

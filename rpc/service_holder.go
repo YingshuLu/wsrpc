@@ -37,8 +37,9 @@ func setConn(ctx context.Context, c *Conn) context.Context {
 	return context.WithValue(ctx, contextConnKey, c)
 }
 
-func newServiceHolder() ServiceHolder {
+func newServiceHolder(host string) ServiceHolder {
 	return &serviceHolder{
+		host:         host,
 		services:     map[string]Service{},
 		keyIdConns:   map[string]*Conn{},
 		keyPeerConns: map[string]*Conn{},
@@ -46,6 +47,8 @@ func newServiceHolder() ServiceHolder {
 }
 
 type ServiceHolder interface {
+	HostId() string
+
 	// AddService add service with name
 	AddService(name string, impl interface{}, options ...Option)
 
@@ -71,10 +74,15 @@ type ServiceHolder interface {
 }
 
 type serviceHolder struct {
+	host         string
 	services     map[string]Service
 	lock         sync.RWMutex
 	keyIdConns   map[string]*Conn
 	keyPeerConns map[string]*Conn
+}
+
+func (s *serviceHolder) HostId() string {
+	return s.host
 }
 
 func (s *serviceHolder) GetService(name string) Service {

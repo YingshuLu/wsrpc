@@ -37,7 +37,6 @@ func (m *mockTransport) Close() error {
 }
 
 func TestOpenAccept(t *testing.T) {
-	timeout := 10 * time.Second
 	tc := newTransport()
 	ts := newTransport()
 	tc.readChan, tc.writeChan = ts.writeChan, ts.readChan
@@ -62,7 +61,7 @@ func TestOpenAccept(t *testing.T) {
 	go cs.readPump()
 	go cs.writePump()
 
-	ss, err := cs.Listen(timeout)
+	ss, err := cs.Listen()
 	if err != nil {
 		t.Log("[cc] open stream error: ", err)
 		return
@@ -71,7 +70,7 @@ func TestOpenAccept(t *testing.T) {
 	id := ss.Id()
 	time.Sleep(time.Second)
 	go func() {
-		s, err := cc.Open(id, timeout)
+		s, err := cc.Open(cc.ctx, id)
 		if err != nil {
 			t.Log("[cc] open stream error: ", err)
 			return
@@ -79,7 +78,7 @@ func TestOpenAccept(t *testing.T) {
 		t.Logf("[cc] open stream %s success", s)
 
 		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).id, 3, []byte("3. good message."))
-		_, err = s.Write([]byte("1. hello world, "))
+		_, err = s.Write(cc.ctx, []byte("1. hello world, "))
 		if err != nil {
 			t.Log("[cc] write stream error: ", err)
 			return
@@ -88,7 +87,7 @@ func TestOpenAccept(t *testing.T) {
 		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).id, 2, []byte("2. this is second, "))
 
 		b := make([]byte, 128)
-		n, err := s.Read(b)
+		n, err := s.Read(cc.ctx, b)
 		if err != nil {
 			t.Log("[cc] read stream error: ", err)
 			return
@@ -103,7 +102,7 @@ func TestOpenAccept(t *testing.T) {
 		t.Logf("[cc] fin stream %s success", s)
 	}()
 
-	err = ss.Accept(timeout)
+	err = cs.Accept(cs.ctx, ss.Id())
 	if err != nil {
 		t.Logf("[cs] accept stream error %v", err)
 		return
@@ -111,7 +110,7 @@ func TestOpenAccept(t *testing.T) {
 	t.Log("[cs] accept stream success")
 	b := make([]byte, 128)
 	for i := 0; i < 51; {
-		n, err := ss.Read(b[i:])
+		n, err := ss.Read(cs.ctx, b[i:])
 		if err != nil {
 			t.Log("[cs] read stream error: ", err)
 			return
@@ -120,7 +119,7 @@ func TestOpenAccept(t *testing.T) {
 	}
 	t.Log("[cs] read stream success, ", string(b[0:51]))
 
-	_, err = ss.Write([]byte("this from cs message"))
+	_, err = ss.Write(cc.ctx, []byte("this from cs message"))
 	if err != nil {
 		t.Log("[cs] write stream error: ", err)
 		return

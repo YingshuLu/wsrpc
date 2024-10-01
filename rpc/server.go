@@ -3,7 +3,6 @@ package rpc
 
 import (
 	"fmt"
-	"github.com/yingshulu/wsrpc/stream"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,6 +11,8 @@ import (
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"github.com/yingshulu/wsrpc/transport"
+
+	"github.com/yingshulu/wsrpc/stream"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 func NewServer(host string, options ...Option) *Server {
 	s := &Server{
 		Host:          host,
-		ServiceHolder: newServiceHolder(),
+		ServiceHolder: newServiceHolder(host),
 		ws:            &websocket.Upgrader{},
 		options:       defaultOptions(),
 	}
@@ -94,10 +95,10 @@ func (s *Server) wsAccept(w http.ResponseWriter, r *http.Request) {
 	header.Add(hostIdKey, s.Host)
 	wsc, err := s.ws.Upgrade(w, r, header)
 	if err != nil {
-		log.Println("websocket upgrade error ", err)
+		log.Error("websocket upgrade error ", err)
 		return
 	}
-	log.Println("accept: ", r.Header)
+	log.Debug("accept: ", r.Header)
 
 	s.onAccept(transport.NewWebSocket(wsc), peer, id, r.Header)
 }
@@ -117,7 +118,7 @@ func (s *Server) RunTcp(addr string) {
 		id := uuid.NewString()
 		peer, err := transport.ServerNegotiate(tc, s.Host, id, s.options.CredentialValidator)
 		if err != nil {
-			log.Printf("server negotiate error: %s", err)
+			log.Errorf("server negotiate error: %s", err)
 			tc.Close()
 			continue
 		}

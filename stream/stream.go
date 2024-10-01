@@ -46,7 +46,24 @@ var null interface{}
 
 type closeFunc func(stream *streamImpl)
 
-func newStream(ctx context.Context, id uint16, timeout time.Duration, f closeFunc) *streamImpl {
+type Stream interface {
+	// String output stream details
+	String() string
+
+	// Id local id
+	Id() uint16
+
+	// Read data
+	Read(ctx context.Context, buf []byte) (int, error)
+
+	// Write data
+	Write(ctx context.Context, data []byte) (int, error)
+
+	// Close the stream
+	Close() error
+}
+
+func newStream(ctx context.Context, id uint16, f closeFunc) *streamImpl {
 	s := &streamImpl{
 		id:    id,
 		state: create,
@@ -55,32 +72,11 @@ func newStream(ctx context.Context, id uint16, timeout time.Duration, f closeFun
 		revCh: make(chan *transport.Frame),
 
 		fragmentSize: defaultFragmentSize,
-		idleTimeout:  timeout,
 		peerClosed:   make(chan interface{}),
 		closeFunc:    f,
 	}
-	s.ctx, s.cancel = context.WithCancel(ctx)
+	s.parentCtx, s.cancel = context.WithCancel(ctx)
 	return s
-}
-
-type Stream interface {
-	// String output stream details
-	String() string
-
-	// Id local id
-	Id() uint16
-
-	// Accept open command to establish stream
-	Accept(timeout time.Duration) error
-
-	// Read data
-	Read(p []byte) (int, error)
-
-	// Write data
-	Write(p []byte) (int, error)
-
-	// Close the stream
-	Close() error
 }
 
 type streamImpl struct {
@@ -94,9 +90,8 @@ type streamImpl struct {
 	sendCh        chan<- *transport.Frame
 
 	fragmentSize int
-	idleTimeout  time.Duration
 	peerClosed   chan interface{}
-	ctx          context.Context
+	parentCtx    context.Context
 	cancel       context.CancelFunc
 	closeFunc    func(stream *streamImpl)
 
@@ -115,16 +110,17 @@ func (s *streamImpl) Id() uint16 {
 	return s.id
 }
 
-func (s *streamImpl) open(d time.Duration) error {
+func (s *streamImpl) open(ctx context.Context) error {
 	id := s.id
 	s.typ = openType
 	s.state = opening
 	s.sendCh <- s.openFrame()
 
-	ctx, cancel := context.WithTimeout(s.ctx, d)
-	defer cancel()
 	var err error
 	select {
+	case <-s.parentCtx.Done():
+		err = fmt.Errorf("open stream %d failure, parent - %v", id, ctx.Err())
+
 	case <-ctx.Done():
 		err = fmt.Errorf("open stream %d failure, %v", id, ctx.Err())
 
@@ -161,20 +157,17 @@ func (s *streamImpl) open(d time.Duration) error {
 	return err
 }
 
-func (s *streamImpl) Accept(timeout time.Duration) error {
+func (s *streamImpl) accept(ctx context.Context) error {
 	s.typ = acceptType
 	s.state = accepting
 
-	if timeout <= 0 {
-		timeout = s.idleTimeout
-	}
-	ctx, cancel := context.WithTimeout(s.ctx, timeout)
-	defer cancel()
-
 	var err error
 	select {
+	case <-s.parentCtx.Done():
+		err = fmt.Errorf("accept stream %d failure, parent - %v", s.id, ctx.Err())
+
 	case <-ctx.Done():
-		err = fmt.Errorf("accept stream %d failure %v", s.id, ctx.Err())
+		err = fmt.Errorf("accept stream %d failure, %v", s.id, ctx.Err())
 
 	case f := <-s.revCh:
 		dst := f.Group
@@ -247,7 +240,7 @@ func (s *streamImpl) handleFrame(f *transport.Frame) {
 	}
 }
 
-func (s *streamImpl) Read(p []byte) (int, error) {
+func (s *streamImpl) Read(ctx context.Context, p []byte) (int, error) {
 	if s.state != streaming && s.state != timeWait {
 		return 0, fmt.Errorf("read stream %s error", s)
 	}
@@ -257,14 +250,15 @@ func (s *streamImpl) Read(p []byte) (int, error) {
 		return 0, nil
 	}
 
-	ctx, cancel := context.WithTimeout(s.ctx, s.idleTimeout)
-	defer cancel()
-
 	// reorder frames
 	for s.queue.Peek() == nil {
 		select {
+		case <-s.parentCtx.Done():
+			return 0, fmt.Errorf("read stream %s error, parent - %v", s, ctx.Err())
+
 		case <-ctx.Done():
-			return 0, fmt.Errorf("read stream %s error %v", s, ctx.Err())
+			return 0, fmt.Errorf("read stream %s error, %v", s, ctx.Err())
+
 		case f := <-s.revCh:
 			s.leftStreamFrames.Add(-1)
 			s.queue.Push(f)
@@ -288,7 +282,7 @@ func (s *streamImpl) Read(p []byte) (int, error) {
 	return total - left, nil
 }
 
-func (s *streamImpl) Write(p []byte) (int, error) {
+func (s *streamImpl) Write(_ context.Context, p []byte) (int, error) {
 	if s.state != streaming && s.state != closeWait && s.state != create {
 		return 0, fmt.Errorf("write closed stream %s with error", s)
 	}

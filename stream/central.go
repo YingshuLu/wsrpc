@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/yingshulu/wsrpc/transport"
@@ -14,6 +13,22 @@ const (
 	maxStreamId uint16 = 65535
 	reservedId  uint16 = 63
 )
+
+type Central interface {
+	transport.Transport
+
+	// Stream get existing Stream by id
+	Stream(uint16) Stream
+
+	// Open id Stream channel to remote
+	Open(ctx context.Context, id uint16) (Stream, error)
+
+	// Listen create listening stream
+	Listen() (Stream, error)
+
+	// Accept on listening stream
+	Accept(ctx context.Context, id uint16) error
+}
 
 // NewCentral create new central for stream
 func NewCentral(t transport.Transport) Central {
@@ -31,19 +46,6 @@ func NewCentral(t transport.Transport) Central {
 	return c
 }
 
-type Central interface {
-	transport.Transport
-
-	// Stream get existing Stream by id
-	Stream(uint16) Stream
-
-	// Open id Stream
-	Open(id uint16, idle time.Duration) (Stream, error)
-
-	// Listen create a new listening stream
-	Listen(idle time.Duration) (Stream, error)
-}
-
 type central struct {
 	t       transport.Transport
 	sendCh  chan *transport.Frame
@@ -58,17 +60,17 @@ func (c *central) Stream(id uint16) Stream {
 	return c.getStream(id)
 }
 
-func (c *central) Open(id uint16, idle time.Duration) (s Stream, err error) {
+func (c *central) Open(ctx context.Context, id uint16) (s Stream, err error) {
 	if id <= reservedId || id >= maxStreamId {
 		err = fmt.Errorf("invalid stream id %d", id)
 		return
 	}
 
-	impl, err := c.createStream(id, idle, true)
+	impl, err := c.createStream(id, true)
 	if err != nil {
 		return
 	}
-	err = impl.open(idle)
+	err = impl.open(ctx)
 	if err != nil {
 		return
 	}
@@ -76,16 +78,25 @@ func (c *central) Open(id uint16, idle time.Duration) (s Stream, err error) {
 	return
 }
 
-func (c *central) Listen(idle time.Duration) (Stream, error) {
+func (c *central) Listen() (Stream, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	for i := reservedId + 1; i < maxStreamId; i++ {
-		s, err := c.createStream(i, idle, false)
+		s, err := c.createStream(i, false)
 		if s != nil {
 			return s, err
 		}
 	}
 	return nil, fmt.Errorf("no more idle stream")
+}
+
+func (c *central) Accept(ctx context.Context, id uint16) error {
+	s := c.getStream(id)
+	if s == nil {
+		return fmt.Errorf("not found stream %d, call Listen to create one", id)
+	}
+
+	return s.accept(ctx)
 }
 
 func (c *central) Read() (f *transport.Frame, err error) {
@@ -107,7 +118,7 @@ func (c *central) Close() error {
 	return c.t.Close()
 }
 
-func (c *central) createStream(id uint16, timeout time.Duration, sync bool) (*streamImpl, error) {
+func (c *central) createStream(id uint16, sync bool) (*streamImpl, error) {
 	if sync {
 		c.lock.Lock()
 		defer c.lock.Unlock()
@@ -116,7 +127,7 @@ func (c *central) createStream(id uint16, timeout time.Duration, sync bool) (*st
 	if c.streams[id] != nil {
 		return nil, fmt.Errorf("create stream error, %d exists already", id)
 	}
-	s := newStream(c.ctx, id, timeout, c.destroyStream)
+	s := newStream(c.ctx, id, c.destroyStream)
 	s.sendCh = c.sendCh
 	c.streams[id] = s
 	return s, nil

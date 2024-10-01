@@ -2,10 +2,13 @@
 package rpc
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"sync/atomic"
+	"time"
 
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
@@ -17,8 +20,7 @@ import (
 func NewClient(host string, options ...Option) *Client {
 	c := &Client{
 		Host:          host,
-		ServiceHolder: newServiceHolder(),
-		stopped:       make(chan interface{}),
+		ServiceHolder: newServiceHolder(host),
 		options:       defaultOptions(),
 	}
 	c.options.Apply(options)
@@ -28,7 +30,7 @@ func NewClient(host string, options ...Option) *Client {
 type Client struct {
 	ServiceHolder
 	Host    string
-	stopped chan interface{}
+	stopped atomic.Bool
 	options *Options
 }
 
@@ -52,6 +54,10 @@ func (c *Client) Connect(a string) error {
 }
 
 func (c *Client) wsConnect(a string) error {
+	if c.stopped.Load() {
+		return errors.New("client stopped")
+	}
+
 	var header = c.options.RequestHeader.Clone()
 	header.Add(hostIdKey, c.Host)
 	if c.options.CredentialProvider != nil {
@@ -81,7 +87,7 @@ func (c *Client) dialConnect(a string, typ string) error {
 	}
 	peer, id, err := transport.ClientNegotiate(tc, c.Host, secret)
 	if err != nil {
-		log.Printf("client negotiate error: %s", err)
+		log.Errorf("client negotiate error: %s", err)
 		return err
 	}
 	c.onConnected(transport.New(tc), peer, id, a, nil)
@@ -89,7 +95,14 @@ func (c *Client) dialConnect(a string, typ string) error {
 }
 
 func (c *Client) Close() {
-	c.stopped <- null
+	c.stopped.Store(true)
+	for i := 0; i < 2; i++ {
+		allConns := c.GetConns()
+		for _, conn := range allConns {
+			conn.Close()
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 func (c *Client) onConnected(t transport.Transport, peer, id string, a string, header http.Header) {
