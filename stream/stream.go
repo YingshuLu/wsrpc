@@ -3,6 +3,7 @@ package stream
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync/atomic"
 	"time"
 
@@ -241,6 +242,10 @@ func (s *streamImpl) handleFrame(f *transport.Frame) {
 }
 
 func (s *streamImpl) Read(ctx context.Context, p []byte) (int, error) {
+	if s.state == closeWait || s.state == closed {
+		return 0, io.EOF
+	}
+
 	if s.state != streaming && s.state != timeWait {
 		return 0, fmt.Errorf("read stream %s error", s)
 	}
@@ -254,9 +259,15 @@ func (s *streamImpl) Read(ctx context.Context, p []byte) (int, error) {
 	for s.queue.Peek() == nil {
 		select {
 		case <-s.parentCtx.Done():
+			if s.state == closeWait || s.state == closed {
+				return 0, io.EOF
+			}
 			return 0, fmt.Errorf("read stream %s error, parent - %v", s, ctx.Err())
 
 		case <-ctx.Done():
+			if s.state == closeWait || s.state == closed {
+				return 0, io.EOF
+			}
 			return 0, fmt.Errorf("read stream %s error, %v", s, ctx.Err())
 
 		case f := <-s.revCh:

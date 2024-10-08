@@ -39,6 +39,10 @@ func (c *Client) Options() *Options {
 }
 
 func (c *Client) Connect(a string) error {
+	if c.stopped.Load() {
+		return errors.New("client stopped")
+	}
+
 	u, err := url.Parse(a)
 	if err != nil {
 		return err
@@ -54,10 +58,6 @@ func (c *Client) Connect(a string) error {
 }
 
 func (c *Client) wsConnect(a string) error {
-	if c.stopped.Load() {
-		return errors.New("client stopped")
-	}
-
 	var header = c.options.RequestHeader.Clone()
 	header.Add(hostIdKey, c.Host)
 	if c.options.CredentialProvider != nil {
