@@ -25,10 +25,15 @@ func NewServer(host string, options ...Option) *Server {
 	s := &Server{
 		Host:          host,
 		ServiceHolder: newServiceHolder(host),
-		ws:            &websocket.Upgrader{},
-		options:       defaultOptions(),
+		ws: &websocket.Upgrader{
+			CheckOrigin: func(_ *http.Request) bool {
+				return true
+			},
+		},
+		options: defaultOptions(),
 	}
 	s.options.Apply(options)
+	s.ws.HandshakeTimeout = s.options.ServiceTimeout
 	return s
 }
 
