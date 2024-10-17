@@ -109,7 +109,8 @@ func (c *central) Read() (f *transport.Frame, err error) {
 }
 
 func (c *central) Write(f *transport.Frame) error {
-	return c.t.Write(f)
+	c.sendCh <- f
+	return nil
 }
 
 func (c *central) Close() error {
