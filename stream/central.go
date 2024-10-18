@@ -138,7 +138,7 @@ func (c *central) readPump() {
 	for {
 		f, err := c.t.Read()
 		if err != nil {
-			c.closeStreams()
+			c.Close()
 			return
 		}
 
@@ -169,7 +169,7 @@ func (c *central) writePump() {
 		case f := <-c.sendCh:
 			err := c.t.Write(f)
 			if err != nil {
-				c.closeStreams()
+				c.Close()
 				return
 			}
 		}
