@@ -120,7 +120,7 @@ func (c *central) Write(f *transport.Frame) error {
 }
 
 func (c *central) Close() error {
-	return c.closeWithError(nil)
+	return c.closeWithError(errors.New("connection closing"))
 }
 
 func (c *central) createStream(id uint16, sync bool) (*streamImpl, error) {
