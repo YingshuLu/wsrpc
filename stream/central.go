@@ -2,6 +2,7 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -33,10 +34,11 @@ type Central interface {
 // NewCentral create new central for stream
 func NewCentral(t transport.Transport) Central {
 	c := &central{
-		t:       t,
-		sendCh:  make(chan *transport.Frame),
-		rpcCh:   make(chan *transport.Frame),
-		streams: map[uint16]*streamImpl{},
+		t:         t,
+		sendCh:    make(chan *transport.Frame),
+		rpcCh:     make(chan *transport.Frame),
+		streams:   map[uint16]*streamImpl{},
+		closedErr: make(chan error),
 	}
 
 	c.ctx, c.cancel = context.WithCancel(context.Background())
@@ -47,13 +49,15 @@ func NewCentral(t transport.Transport) Central {
 }
 
 type central struct {
-	t       transport.Transport
-	sendCh  chan *transport.Frame
-	rpcCh   chan *transport.Frame
-	lock    sync.RWMutex
-	streams map[uint16]*streamImpl
-	ctx     context.Context
-	cancel  context.CancelFunc
+	t         transport.Transport
+	sendCh    chan *transport.Frame
+	rpcCh     chan *transport.Frame
+	lock      sync.RWMutex
+	streams   map[uint16]*streamImpl
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closed    bool
+	closedErr chan error
 }
 
 func (c *central) Stream(id uint16) Stream {
@@ -101,22 +105,22 @@ func (c *central) Accept(ctx context.Context, id uint16) error {
 
 func (c *central) Read() (f *transport.Frame, err error) {
 	select {
-	case <-c.ctx.Done():
-		err = c.ctx.Err()
+	case err = <-c.closedErr:
 	case f = <-c.rpcCh:
 	}
 	return
 }
 
 func (c *central) Write(f *transport.Frame) error {
+	if c.closed {
+		return errors.New("connection closed")
+	}
 	c.sendCh <- f
 	return nil
 }
 
 func (c *central) Close() error {
-	defer c.cancel()
-	c.closeStreams()
-	return c.t.Close()
+	return c.closeWithError(nil)
 }
 
 func (c *central) createStream(id uint16, sync bool) (*streamImpl, error) {
@@ -138,7 +142,7 @@ func (c *central) readPump() {
 	for {
 		f, err := c.t.Read()
 		if err != nil {
-			c.Close()
+			c.closeWithError(err)
 			return
 		}
 
@@ -169,7 +173,7 @@ func (c *central) writePump() {
 		case f := <-c.sendCh:
 			err := c.t.Write(f)
 			if err != nil {
-				c.Close()
+				c.closeWithError(err)
 				return
 			}
 		}
@@ -180,6 +184,20 @@ func (c *central) getStream(id uint16) *streamImpl {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.streams[id]
+}
+
+func (c *central) closeWithError(err error) error {
+	if c.closed {
+		return nil
+	}
+
+	c.closed = true
+	if err != nil {
+		c.closedErr <- err
+	}
+	defer c.cancel()
+	c.closeStreams()
+	return c.t.Close()
 }
 
 func (c *central) destroyStream(s *streamImpl) {
