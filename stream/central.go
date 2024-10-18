@@ -139,9 +139,10 @@ func (c *central) createStream(id uint16, sync bool) (*streamImpl, error) {
 }
 
 func (c *central) readPump() {
-	for {
+	for !c.closed {
 		f, err := c.t.Read()
 		if err != nil {
+			log.Printf("central read error %v", err)
 			c.closeWithError(err)
 			return
 		}
@@ -173,6 +174,7 @@ func (c *central) writePump() {
 		case f := <-c.sendCh:
 			err := c.t.Write(f)
 			if err != nil {
+				log.Printf("central write error: %v", err)
 				c.closeWithError(err)
 				return
 			}
@@ -191,11 +193,11 @@ func (c *central) closeWithError(err error) error {
 		return nil
 	}
 
+	defer c.cancel()
 	c.closed = true
 	if err != nil {
 		c.closedErr <- err
 	}
-	defer c.cancel()
 	c.closeStreams()
 	return c.t.Close()
 }

@@ -134,8 +134,10 @@ func (f *frameReader) Read() (*Frame, error) {
 		return nil, err
 	}
 
-	m.Payload = make([]byte, int(m.Length))
-	_, err = io.ReadFull(f.r, m.Payload)
+	if m.Length > 0 {
+		m.Payload = make([]byte, int(m.Length))
+		_, err = io.ReadFull(f.r, m.Payload)
+	}
 	return m, err
 }
 
