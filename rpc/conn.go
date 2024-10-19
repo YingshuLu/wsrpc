@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	log "github.com/sirupsen/logrus"
+
 	"github.com/yingshulu/wsrpc/codec"
 	"github.com/yingshulu/wsrpc/stream"
 	"github.com/yingshulu/wsrpc/transport"
@@ -27,6 +28,7 @@ func newConn(t transport.Transport, holder ServiceHolder, peer string, id string
 		header:        header,
 	}
 	c.closedContext, c.closedNotify = context.WithCancel(context.Background())
+	c.central = stream.NewCentral(c.closedContext, c.writeFrame)
 
 	c.log = log.WithFields(log.Fields{
 		"Name":     "Connection",

@@ -11,8 +11,6 @@ import (
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"github.com/yingshulu/wsrpc/transport"
-
-	"github.com/yingshulu/wsrpc/stream"
 )
 
 const (
@@ -134,7 +132,6 @@ func (s *Server) RunTcp(addr string) {
 
 func (s *Server) onAccept(t transport.Transport, peer string, id string, header http.Header) {
 	conn := newConn(t, s, peer, id, false, header)
-	conn.central = stream.NewCentral(conn.closedContext, conn.writeFrame)
 	if oldConn := s.GetConnByPeer(conn.Peer()); oldConn != nil {
 		oldConn.Close()
 	}
