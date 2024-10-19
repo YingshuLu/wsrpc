@@ -64,7 +64,7 @@ type Stream interface {
 	Close() error
 }
 
-func newStream(ctx context.Context, id uint16, f closeFunc) *streamImpl {
+func newStream(ctx context.Context, id uint16, writeFrame func(*transport.Frame) error, f closeFunc) *streamImpl {
 	s := &streamImpl{
 		id:    id,
 		state: create,
@@ -75,6 +75,7 @@ func newStream(ctx context.Context, id uint16, f closeFunc) *streamImpl {
 		fragmentSize: defaultFragmentSize,
 		peerClosed:   make(chan interface{}),
 		closeFunc:    f,
+		writeFrame:   writeFrame,
 	}
 	s.parentCtx, s.cancel = context.WithCancel(ctx)
 	return s
@@ -88,7 +89,7 @@ type streamImpl struct {
 	handshakeDone bool
 	queue         frame.Queue
 	revCh         chan *transport.Frame
-	sendCh        chan<- *transport.Frame
+	writeFrame    func(*transport.Frame) error
 
 	fragmentSize int
 	peerClosed   chan interface{}
@@ -115,9 +116,19 @@ func (s *streamImpl) open(ctx context.Context) error {
 	id := s.id
 	s.typ = openType
 	s.state = opening
-	s.sendCh <- s.openFrame()
 
 	var err error
+	defer func() {
+		if err != nil {
+			s.state = closed
+		}
+	}()
+
+	err = s.writeFrame(s.openFrame())
+	if err != nil {
+		return err
+	}
+
 	select {
 	case <-s.parentCtx.Done():
 		err = fmt.Errorf("open stream %d failure, parent - %v", id, ctx.Err())
@@ -152,9 +163,6 @@ func (s *streamImpl) open(ctx context.Context) error {
 		}
 	}
 
-	if err != nil {
-		s.state = closed
-	}
 	return err
 }
 
@@ -181,8 +189,10 @@ func (s *streamImpl) accept(ctx context.Context) error {
 		switch frameType(f) {
 		case openFrame:
 			s.state = streaming
-			s.sendCh <- s.acceptFrame()
-			s.handshakeDone = true
+			err = s.writeFrame(s.acceptFrame())
+			if err == nil {
+				s.handshakeDone = true
+			}
 		case acceptFrame:
 			s.fin()
 			s.state = closed
@@ -201,7 +211,7 @@ func (s *streamImpl) accept(ctx context.Context) error {
 }
 
 func (s *streamImpl) handleFrame(f *transport.Frame) {
-	log.Printf("handle stream %s, frame type %d", s, frameType(f))
+	log.Debugf("handle stream %s, frame type %d", s, frameType(f))
 	if s.state != create && s.state != destroy && s.state != streaming && s.state != timeWait && s.state != closeWait {
 		s.revCh <- f
 		return
@@ -228,7 +238,7 @@ func (s *streamImpl) handleFrame(f *transport.Frame) {
 		s.revCh <- f
 
 	case finishedFrame:
-		log.Printf("[fin] stream %s read fin frame", s)
+		log.Debugf("[fin] stream %s read fin frame", s)
 		if s.state == timeWait {
 			s.peerClosed <- null
 		} else {
@@ -280,12 +290,11 @@ func (s *streamImpl) Read(ctx context.Context, p []byte) (int, error) {
 	left := total
 	for f := s.queue.Peek(); f != nil && left > 0; f = s.queue.Peek() {
 		n := copy(p[total-left:], f.Payload)
-		log.Printf("read %s frame payload size: %d left: %d copy: %d", s, len(f.Payload), left, n)
+		log.Debugf("read %s frame payload size: %d left: %d copy: %d", s, len(f.Payload), left, n)
 		f.Payload = f.Payload[n:]
 		left -= n
 
 		if len(f.Payload) == 0 {
-			log.Println("read queue pop")
 			s.queue.Pop()
 		}
 	}
@@ -303,6 +312,7 @@ func (s *streamImpl) Write(_ context.Context, p []byte) (int, error) {
 		return 0, nil
 	}
 
+	var err error
 	index := 0
 	dataLen := 0
 	for len(p) > 0 {
@@ -314,9 +324,12 @@ func (s *streamImpl) Write(_ context.Context, p []byte) (int, error) {
 		f := s.streamFrame(s.id, s.nextIndex(), p[index:index+dataLen])
 		index += dataLen
 		p = p[index:]
-		s.sendCh <- f
+		err = s.writeFrame(f)
+		if err != nil {
+			break
+		}
 	}
-	return total, nil
+	return total, err
 }
 
 func (s *streamImpl) Close() error {
@@ -341,8 +354,12 @@ func (s *streamImpl) close() error {
 		s.state = timeWait
 	}
 
-	timeout := time.After(5 * time.Second)
+	timeout := time.After(3 * time.Second)
 	select {
+	// connection closed
+	case <-s.parentCtx.Done():
+		s.state = closed
+
 	case <-timeout:
 		s.state = closed
 		return fmt.Errorf("close stream %s timeout", s)
@@ -362,7 +379,7 @@ func (s *streamImpl) destroy() {
 
 func (s *streamImpl) fin() {
 	f := s.finishedFrame(s.id, s.nextIndex())
-	s.sendCh <- f
+	s.writeFrame(f)
 }
 
 func (s *streamImpl) openFrame() *transport.Frame {

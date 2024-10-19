@@ -179,6 +179,11 @@ func (co *Conn) handleRpc(ctx context.Context) error {
 			return err
 		}
 
+		if fm.Flag&transport.BinFlag != 0 {
+			co.central.DispatchFrame(fm)
+			continue
+		}
+
 		msg, err := co.getMessage(fm)
 		if err != nil {
 			co.log.Errorf("get message err: %v", err)
@@ -270,12 +275,14 @@ func (co *Conn) Close() error {
 	if co.closed {
 		return nil
 	}
-	co.log.Warn("connection closed")
+	co.log.Warn("connection closing")
+
 	defer func() {
 		co.holder.RemoveConn(co)
 		if options := co.holder.Options(); options != nil && options.ConnectionClosedEvent != nil {
 			options.ConnectionClosedEvent(co)
 		}
+		co.central.Stop()
 	}()
 	co.closeNotify <- null
 	co.closed = true

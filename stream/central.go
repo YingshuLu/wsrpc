@@ -16,7 +16,6 @@ const (
 )
 
 type Central interface {
-	transport.Transport
 
 	// Stream get existing Stream by id
 	Stream(uint16) Stream
@@ -29,35 +28,32 @@ type Central interface {
 
 	// Accept on listening stream
 	Accept(ctx context.Context, id uint16) error
+
+	// DispatchFrame dispatch frames to streams
+	DispatchFrame(*transport.Frame)
+
+	// Stop
+	Stop()
 }
 
 // NewCentral create new central for stream
-func NewCentral(t transport.Transport) Central {
+func NewCentral(sendFrame func(f *transport.Frame)) Central {
 	c := &central{
-		t:         t,
-		sendCh:    make(chan *transport.Frame),
-		rpcCh:     make(chan *transport.Frame),
 		streams:   map[uint16]*streamImpl{},
-		closedErr: make(chan error),
+		sendFrame: sendFrame,
 	}
 
 	c.ctx, c.cancel = context.WithCancel(context.Background())
-
-	go c.readPump()
-	go c.writePump()
 	return c
 }
 
 type central struct {
-	t         transport.Transport
-	sendCh    chan *transport.Frame
-	rpcCh     chan *transport.Frame
 	lock      sync.RWMutex
 	streams   map[uint16]*streamImpl
+	sendFrame func(*transport.Frame)
 	ctx       context.Context
 	cancel    context.CancelFunc
 	closed    bool
-	closedErr chan error
 }
 
 func (c *central) Stream(id uint16) Stream {
@@ -103,24 +99,42 @@ func (c *central) Accept(ctx context.Context, id uint16) error {
 	return s.accept(ctx)
 }
 
-func (c *central) Read() (f *transport.Frame, err error) {
-	select {
-	case err = <-c.closedErr:
-	case f = <-c.rpcCh:
+func (c *central) DispatchFrame(f *transport.Frame) {
+	dst := f.Group
+	if s := c.getStream(dst); s != nil {
+		log.Printf("readpump stream %s", s)
+		s.handleFrame(f)
+	} else {
+		f.Opcode = transport.Close
+		c.sendFrame(f)
+		log.Errorf("central: not found stream %v, send fin", dst)
 	}
-	return
 }
 
-func (c *central) Write(f *transport.Frame) error {
+func (c *central) Stop() {
+	if c.closed {
+		return
+	}
+	c.closed = true
+	defer c.cancel()
+	c.clear()
+}
+
+func (c *central) writeFrame(f *transport.Frame) error {
 	if c.closed {
 		return errors.New("connection closed")
 	}
-	c.sendCh <- f
+	c.sendFrame(f)
 	return nil
 }
 
-func (c *central) Close() error {
-	return c.closeWithError(errors.New("connection closing"))
+func (c *central) getStream(id uint16) *streamImpl {
+	if c.closed {
+		return nil
+	}
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+	return c.streams[id]
 }
 
 func (c *central) createStream(id uint16, sync bool) (*streamImpl, error) {
@@ -132,87 +146,21 @@ func (c *central) createStream(id uint16, sync bool) (*streamImpl, error) {
 	if c.streams[id] != nil {
 		return nil, fmt.Errorf("create stream error, %d exists already", id)
 	}
-	s := newStream(c.ctx, id, c.destroyStream)
-	s.sendCh = c.sendCh
+	s := newStream(c.ctx, id, c.writeFrame, c.cleanStream)
 	c.streams[id] = s
 	return s, nil
 }
 
-func (c *central) readPump() {
-	for !c.closed {
-		f, err := c.t.Read()
-		if err != nil {
-			log.Printf("central read error %v", err)
-			c.closeWithError(err)
-			return
-		}
-
-		if f.Flag&transport.BinFlag != 0 {
-			dst := f.Group
-			if s := c.getStream(dst); s != nil {
-				log.Printf("readpump stream %s", s)
-				s.handleFrame(f)
-			} else {
-				// reset
-				m := newFrame(nil)
-				m.Opcode = transport.Close
-				m.Group = f.Group
-				c.sendCh <- m
-			}
-		} else if f.Flag&transport.RpcFlag != 0 {
-			c.rpcCh <- f
-		}
+func (c *central) cleanStream(s *streamImpl) {
+	ss := c.streams
+	if ss == nil {
+		return
 	}
-}
-
-func (c *central) writePump() {
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-
-		case f := <-c.sendCh:
-			err := c.t.Write(f)
-			if err != nil {
-				log.Printf("central write error: %v", err)
-				c.closeWithError(err)
-				return
-			}
-		}
-	}
-}
-
-func (c *central) getStream(id uint16) *streamImpl {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-	return c.streams[id]
-}
-
-func (c *central) closeWithError(err error) error {
-	if c.closed {
-		return nil
-	}
-
-	defer c.cancel()
-	c.closed = true
-	if err != nil {
-		c.closedErr <- err
-	}
-	c.closeStreams()
-	return c.t.Close()
-}
-
-func (c *central) destroyStream(s *streamImpl) {
 	c.lock.Lock()
-	delete(c.streams, s.id)
+	delete(ss, s.id)
 	c.lock.Unlock()
 }
 
-func (c *central) closeStreams() {
-	c.lock.Lock()
-	for _, s := range c.streams {
-		s.close()
-	}
+func (c *central) clear() {
 	c.streams = nil
-	c.lock.Unlock()
 }

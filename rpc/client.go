@@ -106,15 +106,9 @@ func (c *Client) Close() {
 }
 
 func (c *Client) onConnected(t transport.Transport, peer, id string, a string, header http.Header) {
-	var central stream.Central
-	if c.options.EnableStream {
-		central = stream.NewCentral(t)
-		t = central
-	}
-
 	conn := newConn(t, c, peer, id, true, header)
 	conn.addr = a
-	conn.central = central
+	conn.central = stream.NewCentral(conn.writeFrame)
 	if oldConn := c.GetConnByPeer(conn.Peer()); oldConn != nil {
 		oldConn.Close()
 	}
