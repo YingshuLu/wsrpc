@@ -108,7 +108,7 @@ func (c *Client) Close() {
 func (c *Client) onConnected(t transport.Transport, peer, id string, a string, header http.Header) {
 	conn := newConn(t, c, peer, id, true, header)
 	conn.addr = a
-	conn.central = stream.NewCentral(conn.writeFrame)
+	conn.central = stream.NewCentral(conn.closedContext, conn.writeFrame)
 	if oldConn := c.GetConnByPeer(conn.Peer()); oldConn != nil {
 		oldConn.Close()
 	}
