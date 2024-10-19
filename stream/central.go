@@ -37,13 +37,12 @@ type Central interface {
 }
 
 // NewCentral create new central for stream
-func NewCentral(sendFrame func(f *transport.Frame)) Central {
+func NewCentral(ctx context.Context, sendFrame func(f *transport.Frame)) Central {
 	c := &central{
 		streams:   map[uint16]*streamImpl{},
 		sendFrame: sendFrame,
+		ctx:       ctx,
 	}
-
-	c.ctx, c.cancel = context.WithCancel(context.Background())
 	return c
 }
 
@@ -106,7 +105,7 @@ func (c *central) DispatchFrame(f *transport.Frame) {
 		s.handleFrame(f)
 	} else {
 		f.Opcode = transport.Close
-		c.sendFrame(f)
+		c.writeFrame(f)
 		log.Errorf("central: not found stream %v, send fin", dst)
 	}
 }
@@ -116,7 +115,6 @@ func (c *central) Stop() {
 		return
 	}
 	c.closed = true
-	defer c.cancel()
 	c.clear()
 }
 

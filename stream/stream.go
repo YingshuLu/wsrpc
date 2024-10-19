@@ -70,10 +70,10 @@ func newStream(ctx context.Context, id uint16, writeFrame func(*transport.Frame)
 		state: create,
 
 		queue: frame.NewQueue(),
-		revCh: make(chan *transport.Frame),
+		revCh: make(chan *transport.Frame, 50),
 
 		fragmentSize: defaultFragmentSize,
-		peerClosed:   make(chan interface{}),
+		peerClosed:   make(chan interface{}, 10),
 		closeFunc:    f,
 		writeFrame:   writeFrame,
 	}
@@ -131,7 +131,7 @@ func (s *streamImpl) open(ctx context.Context) error {
 
 	select {
 	case <-s.parentCtx.Done():
-		err = fmt.Errorf("open stream %d failure, parent - %v", id, ctx.Err())
+		err = fmt.Errorf("open stream %d failure, %v", id, ctx.Err())
 
 	case <-ctx.Done():
 		err = fmt.Errorf("open stream %d failure, %v", id, ctx.Err())
@@ -211,12 +211,11 @@ func (s *streamImpl) accept(ctx context.Context) error {
 }
 
 func (s *streamImpl) handleFrame(f *transport.Frame) {
-	log.Debugf("handle stream %s, frame type %d", s, frameType(f))
+	log.Debugf("stream.handleFrame stream %s, frame type %d", s, frameType(f))
 	if s.state != create && s.state != destroy && s.state != streaming && s.state != timeWait && s.state != closeWait {
 		s.revCh <- f
 		return
 	}
-
 	switch frameType(f) {
 	case openFrame:
 		if s.typ == acceptType && !s.handshakeDone {
