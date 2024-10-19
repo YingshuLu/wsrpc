@@ -2,6 +2,7 @@ package stream
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -116,10 +117,21 @@ func (c *central) Stop() {
 	}
 	c.closed = true
 	defer c.cancel()
-	c.closeStreams()
+	c.clear()
+}
+
+func (c *central) writeFrame(f *transport.Frame) error {
+	if c.closed {
+		return errors.New("connection closed")
+	}
+	c.sendFrame(f)
+	return nil
 }
 
 func (c *central) getStream(id uint16) *streamImpl {
+	if c.closed {
+		return nil
+	}
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.streams[id]
@@ -134,22 +146,21 @@ func (c *central) createStream(id uint16, sync bool) (*streamImpl, error) {
 	if c.streams[id] != nil {
 		return nil, fmt.Errorf("create stream error, %d exists already", id)
 	}
-	s := newStream(c.ctx, id, c.sendFrame, c.destroyStream)
+	s := newStream(c.ctx, id, c.writeFrame, c.cleanStream)
 	c.streams[id] = s
 	return s, nil
 }
 
-func (c *central) destroyStream(s *streamImpl) {
+func (c *central) cleanStream(s *streamImpl) {
+	ss := c.streams
+	if ss == nil {
+		return
+	}
 	c.lock.Lock()
-	delete(c.streams, s.id)
+	delete(ss, s.id)
 	c.lock.Unlock()
 }
 
-func (c *central) closeStreams() {
-	c.lock.Lock()
-	for _, s := range c.streams {
-		s.close()
-	}
+func (c *central) clear() {
 	c.streams = nil
-	c.lock.Unlock()
 }

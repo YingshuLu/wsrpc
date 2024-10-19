@@ -45,14 +45,14 @@ func TestOpenAccept(t *testing.T) {
 		}
 		t.Logf("[cc] open stream %s success", s)
 
-		s.(*streamImpl).sendFrame(s.(*streamImpl).streamFrame(s.(*streamImpl).id, 3, []byte("3. good message.")))
+		s.(*streamImpl).writeFrame(s.(*streamImpl).streamFrame(s.(*streamImpl).id, 3, []byte("3. good message.")))
 		_, err = s.Write(cc.ctx, []byte("1. hello world, "))
 		if err != nil {
 			t.Log("[cc] write stream error: ", err)
 			return
 		}
 		t.Log("[cc] write stream success")
-		s.(*streamImpl).sendFrame(s.(*streamImpl).streamFrame(s.(*streamImpl).id, 2, []byte("2. this is second, ")))
+		s.(*streamImpl).writeFrame(s.(*streamImpl).streamFrame(s.(*streamImpl).id, 2, []byte("2. this is second, ")))
 
 		b := make([]byte, 128)
 		n, err := s.Read(cc.ctx, b)
