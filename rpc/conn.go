@@ -22,11 +22,11 @@ func newConn(t transport.Transport, holder ServiceHolder, peer string, id string
 		peer:          peer,
 		id:            id,
 		holder:        holder,
-		sendingFrames: make(chan *transport.Frame),
-		closeNotify:   make(chan interface{}),
+		sendingFrames: make(chan *transport.Frame, 100),
 		isClient:      isClient,
 		header:        header,
 	}
+	c.closedContext, c.closedNotify = context.WithCancel(context.Background())
 
 	c.log = log.WithFields(log.Fields{
 		"Name":     "Connection",
@@ -35,7 +35,7 @@ func newConn(t transport.Transport, holder ServiceHolder, peer string, id string
 		"IsClient": c.isClient,
 	})
 
-	c.run(context.Background())
+	c.run(c.closedContext)
 	return c
 }
 
@@ -47,13 +47,14 @@ type Conn struct {
 	sendingFrames chan *transport.Frame
 	messageID     uint32
 	isClient      bool
-	closeNotify   chan interface{}
 	closed        bool
 	holder        ServiceHolder
 	addr          string
 	header        http.Header
 	values        sync.Map
 	central       stream.Central
+	closedContext context.Context
+	closedNotify  context.CancelFunc
 	log           *log.Entry
 }
 
@@ -149,7 +150,7 @@ func (co *Conn) call(ctx context.Context, service string, req interface{}, reply
 	case <-ctx.Done():
 		return fmt.Errorf("context done: %v", ctx.Err())
 
-	case <-co.closeNotify:
+	case <-co.closedContext.Done():
 		return fmt.Errorf("connection %s closed", co.peer)
 
 	case replyMsg := <-ch:
@@ -165,22 +166,19 @@ func (co *Conn) call(ctx context.Context, service string, req interface{}, reply
 }
 
 func (co *Conn) handleRpc(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
 	defer func() {
-		cancel()
 		co.Close()
 	}()
 
-	for !co.closed {
+	for {
 		fm, err := co.t.Read()
 		if err != nil {
 			co.log.Errorf("read err: %v ", err)
-			co.Close()
 			return err
 		}
 
 		if fm.Flag&transport.BinFlag != 0 {
-			co.central.DispatchFrame(fm)
+			go co.central.DispatchFrame(fm)
 			continue
 		}
 
@@ -207,11 +205,9 @@ func (co *Conn) handleRpc(ctx context.Context) error {
 
 		case CloseType:
 			co.log.Warn("get close msg")
-			return co.Close()
+			return nil
 		}
 	}
-
-	return nil
 }
 
 func (co *Conn) invokeService(ctx context.Context, msg *Message) (replyMsg *Message) {
@@ -262,7 +258,8 @@ func (co *Conn) writeFrameTask() {
 				co.Close()
 				return
 			}
-		case <-co.closeNotify:
+		case <-co.closedContext.Done():
+			return
 		}
 	}
 }
@@ -278,19 +275,19 @@ func (co *Conn) Close() error {
 	co.log.Warn("connection closing")
 
 	defer func() {
+		co.closed = true
+		co.closedNotify()
 		co.holder.RemoveConn(co)
 		if options := co.holder.Options(); options != nil && options.ConnectionClosedEvent != nil {
-			options.ConnectionClosedEvent(co)
+			go options.ConnectionClosedEvent(co)
 		}
 		co.central.Stop()
 	}()
-	co.closeNotify <- null
-	co.closed = true
+
 	return co.t.Close()
 }
 
 func (co *Conn) CloseMessage(message string) {
-
 	if co.closed {
 		return
 	}
