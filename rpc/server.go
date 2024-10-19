@@ -133,13 +133,8 @@ func (s *Server) RunTcp(addr string) {
 }
 
 func (s *Server) onAccept(t transport.Transport, peer string, id string, header http.Header) {
-	var central stream.Central
-	if s.options.EnableStream {
-		central = stream.NewCentral(t)
-		t = central
-	}
 	conn := newConn(t, s, peer, id, false, header)
-	conn.central = central
+	conn.central = stream.NewCentral(conn.writeFrame)
 	if oldConn := s.GetConnByPeer(conn.Peer()); oldConn != nil {
 		oldConn.Close()
 	}

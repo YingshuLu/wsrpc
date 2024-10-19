@@ -8,58 +8,26 @@ import (
 	"github.com/yingshulu/wsrpc/transport"
 )
 
-func newTransport() *mockTransport {
-	return &mockTransport{
-		readChan:  make(chan *transport.Frame),
-		writeChan: make(chan *transport.Frame),
-	}
-}
-
-type mockTransport struct {
-	readChan  chan *transport.Frame
-	writeChan chan *transport.Frame
-}
-
-func (m *mockTransport) Read() (*transport.Frame, error) {
-	f := <-m.readChan
-	return f, nil
-}
-
-func (m *mockTransport) Write(f *transport.Frame) error {
-	m.writeChan <- f
-	return nil
-}
-
-func (m *mockTransport) Close() error {
-	close(m.readChan)
-	close(m.writeChan)
-	return nil
-}
-
 func TestOpenAccept(t *testing.T) {
-	tc := newTransport()
-	ts := newTransport()
-	tc.readChan, tc.writeChan = ts.writeChan, ts.readChan
-
 	cc := &central{
-		t:       tc,
-		sendCh:  make(chan *transport.Frame),
 		streams: map[uint16]*streamImpl{},
 	}
 	cc.ctx, cc.cancel = context.WithCancel(context.Background())
 
-	go cc.readPump()
-	go cc.writePump()
-
 	cs := &central{
-		t:       ts,
-		sendCh:  make(chan *transport.Frame),
 		streams: map[uint16]*streamImpl{},
 	}
 	cs.ctx, cs.cancel = context.WithCancel(context.Background())
 
-	go cs.readPump()
-	go cs.writePump()
+	cc.sendFrame = func(f *transport.Frame) {
+		cs.DispatchFrame(f)
+	}
+
+	cs.sendFrame = func(f *transport.Frame) {
+		cc.DispatchFrame(f)
+	}
+
+	// mock ready
 
 	ss, err := cs.Listen()
 	if err != nil {
@@ -77,14 +45,14 @@ func TestOpenAccept(t *testing.T) {
 		}
 		t.Logf("[cc] open stream %s success", s)
 
-		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).id, 3, []byte("3. good message."))
+		s.(*streamImpl).sendFrame(s.(*streamImpl).streamFrame(s.(*streamImpl).id, 3, []byte("3. good message.")))
 		_, err = s.Write(cc.ctx, []byte("1. hello world, "))
 		if err != nil {
 			t.Log("[cc] write stream error: ", err)
 			return
 		}
 		t.Log("[cc] write stream success")
-		s.(*streamImpl).sendCh <- s.(*streamImpl).streamFrame(s.(*streamImpl).id, 2, []byte("2. this is second, "))
+		s.(*streamImpl).sendFrame(s.(*streamImpl).streamFrame(s.(*streamImpl).id, 2, []byte("2. this is second, ")))
 
 		b := make([]byte, 128)
 		n, err := s.Read(cc.ctx, b)
