@@ -97,6 +97,7 @@ type streamImpl struct {
 	cancel       context.CancelFunc
 	closeFunc    func(stream *streamImpl)
 
+	finArrived       bool
 	leftStreamFrames atomic.Int32
 }
 
@@ -241,9 +242,11 @@ func (s *streamImpl) handleFrame(f *transport.Frame) {
 		if s.state == timeWait {
 			s.peerClosed <- null
 		} else {
-			s.state = closeWait
-			// exit Read
-			if s.leftStreamFrames.Load() == 0 {
+			if s.leftStreamFrames.Load() > 0 {
+				s.finArrived = true
+			} else {
+				s.state = closeWait
+				// exit Read
 				s.cancel()
 			}
 		}
@@ -266,6 +269,12 @@ func (s *streamImpl) Read(ctx context.Context, p []byte) (int, error) {
 
 	// reorder frames
 	for s.queue.Peek() == nil {
+
+		if s.leftStreamFrames.Load() == 0 && s.finArrived {
+			s.state = closeWait
+			return 0, io.EOF
+		}
+
 		select {
 		case <-s.parentCtx.Done():
 			if s.state == closeWait || s.state == closed {
@@ -298,12 +307,21 @@ func (s *streamImpl) Read(ctx context.Context, p []byte) (int, error) {
 		}
 	}
 
+	if total == left && s.leftStreamFrames.Load() == 0 && s.finArrived {
+		s.state = closeWait
+		return 0, io.EOF
+	}
+
 	return total - left, nil
 }
 
 func (s *streamImpl) Write(_ context.Context, p []byte) (int, error) {
 	if s.state != streaming && s.state != closeWait && s.state != create {
 		return 0, fmt.Errorf("write closed stream %s with error", s)
+	}
+
+	if s.finArrived {
+		return 0, fmt.Errorf("write closed stream %s - fin arrived", s)
 	}
 
 	total := len(p)
