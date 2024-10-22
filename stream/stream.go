@@ -102,11 +102,7 @@ type streamImpl struct {
 }
 
 func (s *streamImpl) String() string {
-	direct := "----> remote"
-	if s.typ == acceptType {
-		direct = "<---- remote"
-	}
-	return fmt.Sprintf("[stream %d %s state %d]", s.id, direct, s.state)
+	return fmt.Sprintf("id %d state %d", s.id, s.state)
 }
 
 func (s *streamImpl) Id() uint16 {
@@ -155,7 +151,7 @@ func (s *streamImpl) open(ctx context.Context) error {
 			s.state = streaming
 			s.handshakeDone = true
 		case streamFrame:
-			s.queue.Push(f)
+			s.pushFrame(f)
 			s.state = streaming
 		case finishedFrame:
 			s.peerClosed <- null
@@ -199,7 +195,7 @@ func (s *streamImpl) accept(ctx context.Context) error {
 			s.state = closed
 			err = fmt.Errorf("accept stream %d failure, local stream %d not opening", f.Group, s.id)
 		case streamFrame:
-			s.queue.Push(f)
+			s.pushFrame(f)
 			s.state = streaming
 		case finishedFrame:
 			s.fin()
@@ -214,7 +210,7 @@ func (s *streamImpl) accept(ctx context.Context) error {
 func (s *streamImpl) handleFrame(f *transport.Frame) {
 	log.Debugf("stream.handleFrame stream %s, frame type %d", s, frameType(f))
 	if s.state != create && s.state != destroy && s.state != streaming && s.state != timeWait && s.state != closeWait {
-		s.revCh <- f
+		s.pushFrame(f)
 		return
 	}
 	switch frameType(f) {
@@ -234,8 +230,7 @@ func (s *streamImpl) handleFrame(f *transport.Frame) {
 			s.state = closed
 		}
 	case streamFrame:
-		s.leftStreamFrames.Add(1)
-		s.revCh <- f
+		s.pushFrame(f)
 
 	case finishedFrame:
 		log.Debugf("[fin] stream %s read fin frame", s)
@@ -280,7 +275,13 @@ func (s *streamImpl) Read(ctx context.Context, p []byte) (int, error) {
 			if s.state == closeWait || s.state == closed {
 				return 0, io.EOF
 			}
-			return 0, fmt.Errorf("read stream %s error, parent - %v", s, ctx.Err())
+
+			if s.leftStreamFrames.Load() > 0 {
+				s.finArrived = true
+				continue
+			} else {
+				return 0, fmt.Errorf("read stream %s error, parent - %v", s, ctx.Err())
+			}
 
 		case <-ctx.Done():
 			if s.state == closeWait || s.state == closed {
@@ -405,6 +406,13 @@ func (s *streamImpl) openFrame() *transport.Frame {
 	f.Group = s.id
 	f.Flag |= transport.NextFlag
 	return f
+}
+
+func (s *streamImpl) pushFrame(f *transport.Frame) {
+	if frameType(f) == streamFrame {
+		s.leftStreamFrames.Add(1)
+	}
+	s.revCh <- f
 }
 
 func (s *streamImpl) acceptFrame() *transport.Frame {
