@@ -112,7 +112,7 @@ func (co *Conn) Value(k string) interface{} {
 }
 
 func (co *Conn) run(ctx context.Context) {
-	go co.handleRpc(ctx)
+	go co.handleFrame(ctx)
 	go co.writeFrameTask()
 }
 
@@ -167,7 +167,7 @@ func (co *Conn) call(ctx context.Context, service string, req interface{}, reply
 	return nil
 }
 
-func (co *Conn) handleRpc(ctx context.Context) error {
+func (co *Conn) handleFrame(ctx context.Context) error {
 	defer func() {
 		co.Close()
 	}()
@@ -180,7 +180,7 @@ func (co *Conn) handleRpc(ctx context.Context) error {
 		}
 
 		if fm.Flag&transport.BinFlag != 0 {
-			go co.central.DispatchFrame(fm)
+			co.central.DispatchFrame(fm)
 			continue
 		}
 
