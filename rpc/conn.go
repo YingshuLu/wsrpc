@@ -122,8 +122,14 @@ func (co *Conn) nextMessageID() uint32 {
 
 // call client RpcCall
 func (co *Conn) call(ctx context.Context, service string, req interface{}, reply interface{}, options *Options) error {
+	serialize := codec.TypeOf(options.SerializationType)
+	if !serialize.Legal() {
+		return fmt.Errorf("not support codec type: %v", serialize)
+	}
+
 	m := &Message{
 		Type:    RequestType,
+		Codec:   uint8(serialize),
 		ID:      co.nextMessageID(),
 		Service: service,
 	}
@@ -213,14 +219,13 @@ func (co *Conn) handleFrame(ctx context.Context) error {
 }
 
 func (co *Conn) invokeService(ctx context.Context, msg *Message) (replyMsg *Message) {
-	replyMsg = &Message{}
 	var err error
 	defer func() {
-		replyMsg.Type = ReplyType
-		replyMsg.ID = msg.ID
 		if err != nil {
-			replyMsg.Type = ErrorType
-			replyMsg.Error = err.Error()
+			replyMsg = &Message{
+				Type:  ErrorType,
+				Error: err.Error(),
+			}
 		}
 	}()
 
@@ -240,7 +245,7 @@ func (co *Conn) invokeService(ctx context.Context, msg *Message) (replyMsg *Mess
 
 	ctx = setServiceHolder(ctx, co.holder)
 	ctx = setConn(ctx, co)
-	replyMsg.Data, err = s.Invoke(ctx, mname, msg.Data)
+	replyMsg = s.Invoke(ctx, mname, msg)
 	return
 }
 
