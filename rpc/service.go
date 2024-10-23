@@ -15,11 +15,10 @@ import (
 var (
 	typeOfError   = reflect.TypeOf((*error)(nil)).Elem()
 	typeOfContext = reflect.TypeOf((*context.Context)(nil)).Elem()
-	null          interface{}
 )
 
 type Service interface {
-	Invoke(ctx context.Context, methodName string, reqData []byte) (replyData []byte, err error)
+	Invoke(ctx context.Context, methodName string, req *Message) (reply *Message)
 }
 
 func newService(name string, receiver interface{}, options ...Option) Service {
@@ -57,7 +56,26 @@ type service struct {
 	options      *Options
 }
 
-func (s *service) Invoke(ctx context.Context, methodName string, reqData []byte) (replyData []byte, err error) {
+func (s *service) Invoke(ctx context.Context, methodName string, reqMessage *Message) (replyMessage *Message) {
+	replyMessage = &Message{}
+	var err error
+	defer func() {
+		if err != nil {
+			replyMessage.Type = ErrorType
+			replyMessage.Error = err.Error()
+		} else {
+			replyMessage.Type = ReplyType
+			replyMessage.Codec = reqMessage.Codec
+			replyMessage.ID = reqMessage.ID
+		}
+	}()
+
+	serialize := codec.Type(reqMessage.Codec)
+	if !serialize.Legal() {
+		err = fmt.Errorf("not support codec type: %v", serialize)
+		return
+	}
+
 	m, ok := s.methods[methodName]
 	if !ok {
 		err = fmt.Errorf("not found service %s.%s", s.name, methodName)
@@ -65,39 +83,41 @@ func (s *service) Invoke(ctx context.Context, methodName string, reqData []byte)
 	}
 
 	req, reply := m.newExchangeValues()
-	err = codec.Unmarshal(s.options.SerializationType, reqData, req.Interface())
+	err = codec.Unmarshal(serialize.String(), reqMessage.Data, req.Interface())
 	if err != nil {
 		return
 	}
 
 	// call service
 	{
-		notify := make(chan interface{}, 1)
+		notify := make(chan error, 1)
 		ctx, cancel := context.WithTimeout(ctx, s.options.ServiceTimeout)
 		defer cancel()
 
 		go func() {
+			var invokeErr error
 			defer func() {
 				if r := recover(); r != nil {
-					err = fmt.Errorf("call service %s.%s panic: %v", s.name, methodName, r)
+					invokeErr = fmt.Errorf("call service %s.%s panic: %v", s.name, methodName, r)
 				}
-				notify <- null
+				notify <- invokeErr
 			}()
 
-			err = m.invoke(ctx, s.receiver, req, reply)
+			invokeErr = m.invoke(ctx, s.receiver, req, reply)
 		}()
 
 		select {
 		case v := <-ctx.Done():
 			err = fmt.Errorf("call service %s.%s context done: %v", s.name, methodName, v)
-		case <-notify:
+		case err = <-notify:
+		}
+
+		if err != nil {
+			return
 		}
 	}
 
-	if err != nil {
-		return
-	}
-	replyData, err = codec.Marshal(s.options.SerializationType, reply.Interface())
+	replyMessage.Data, err = codec.Marshal(serialize.String(), reply.Interface())
 	return
 }
 

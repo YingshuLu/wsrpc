@@ -7,14 +7,15 @@ import (
 )
 
 const (
-	RequestType uint16 = iota + 1
+	RequestType uint8 = iota + 1
 	ReplyType
 	ErrorType
 	CloseType
 )
 
 type Message struct {
-	Type    uint16
+	Type    uint8
+	Codec   uint8
 	ID      uint32
 	Service string
 	Error   string
@@ -23,7 +24,8 @@ type Message struct {
 
 func (m *Message) Encode() ([]byte, error) {
 	var buf = make([]byte, 0, 12)
-	buf = appendUint16(buf, m.Type)
+	buf = append(buf, m.Type)
+	buf = append(buf, m.Codec)
 	buf = appendUint32(buf, m.ID)
 	buf = appendUint16(buf, uint16(len(m.Service)))
 	buf = append(buf, m.Service...)
@@ -45,7 +47,8 @@ func (m *Message) Decode(data []byte) error {
 	}
 
 	var index = 0
-	m.Type = binary.BigEndian.Uint16(data[index:])
+	m.Type = data[0]
+	m.Codec = data[1]
 	index += 2
 
 	m.ID = binary.BigEndian.Uint32(data[index:])

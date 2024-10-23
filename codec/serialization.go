@@ -3,6 +3,39 @@ package codec
 
 import "errors"
 
+const (
+	None Type = iota
+	Protobuf
+	Json
+	Unknown
+)
+
+var stringTypes = []string{"none", "protobuf", "json"}
+
+type Type uint8
+
+func (t Type) String() string {
+	if !t.Legal() {
+		return "Unknown"
+	}
+	return stringTypes[t]
+}
+
+func (t Type) Legal() bool {
+	return t > None && t < Unknown
+}
+
+func TypeOf(serializationType string) Type {
+	switch serializationType {
+	case "protobuf":
+		return Protobuf
+	case "json":
+		return Json
+	default:
+		return None
+	}
+}
+
 type Serializer interface {
 	Unmarshal(in []byte, body interface{}) error
 	Marshal(body interface{}) (out []byte, err error)
