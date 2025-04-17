@@ -14,6 +14,18 @@ const (
 	contextConnKey
 )
 
+var (
+	globalLocker   = &sync.RWMutex{}
+	globalServices = map[string]Service{}
+)
+
+func RegisterService(name string, impl interface{}, options ...Option) {
+	svc := newService(name, impl, options...)
+	globalLocker.Lock()
+	defer globalLocker.Unlock()
+	globalServices[strings.ToLower(name)] = svc
+}
+
 func GetServiceHolder(ctx context.Context) ServiceHolder {
 	v := ctx.Value(contextHolderKey)
 	if v == nil {
@@ -86,7 +98,14 @@ func (s *serviceHolder) HostId() string {
 }
 
 func (s *serviceHolder) GetService(name string) Service {
-	return s.services[strings.ToLower(name)]
+	serviceName := strings.ToLower(name)
+	svc := s.services[serviceName]
+	if svc == nil {
+		globalLocker.RLock()
+		svc = globalServices[serviceName]
+		globalLocker.RUnlock()
+	}
+	return svc
 }
 
 func (s *serviceHolder) AddService(name string, impl interface{}, options ...Option) {

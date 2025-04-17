@@ -71,8 +71,8 @@ func main() {
 			generateProxyClientMethod(&buf, packageName, *interfaceName, clientName, name, req, res)
 		}
 
-		fmt.Fprintf(&buf, "func Register%sService(conn *rpc.Conn, service %s, options ...rpc.Option) {\n", *interfaceName, *interfaceName)
-		fmt.Fprintf(&buf, "\tconn.RegisterService(\"%s.%s\", service, options...)\n", packageName, *interfaceName)
+		fmt.Fprintf(&buf, "func Register%sService(service %s, options ...rpc.Option) {\n", *interfaceName, *interfaceName)
+		fmt.Fprintf(&buf, "\trpc.RegisterService(\"%s.%s\", service, options...)\n", packageName, *interfaceName)
 		fmt.Fprintf(&buf, "}\n")
 		return false
 	})
@@ -105,7 +105,7 @@ func exprString(expr ast.Expr) string {
 func generateProxyClientMethod(buf *bytes.Buffer, packageName, interfaceName, clientName, methodName, req, res string) {
 	fmt.Fprintf(buf, "func (c *%s) %s(ctx context.Context, req %s, options ...rpc.Option) (%s, error) {\n", clientName, methodName, req, res)
 	fmt.Fprintf(buf, "\tvar res %s\n", res)
-	fmt.Fprintf(buf, "\tproxy := c.conn.NewProxy(\"%s.%s.%s\")\n", packageName, interfaceName, methodName)
+	fmt.Fprintf(buf, "\tproxy := c.conn.GetProxy(\"%s.%s.%s\")\n", packageName, interfaceName, methodName)
 	fmt.Fprintf(buf, "\terr := proxy.Call(ctx, req, res, options...)\n")
 	fmt.Fprintf(buf, "\treturn res, err\n")
 	fmt.Fprintf(buf, "}\n\n")
