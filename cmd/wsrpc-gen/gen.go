@@ -72,8 +72,8 @@ func main() {
 			generateProxyClientMethod(&buf, packageName, *interfaceName, clientName, name, req, res)
 		}
 
-		fmt.Fprintf(&buf, "func Register%sService(service %s, options ...rpc.Option) {\n", *interfaceName, *interfaceName)
-		fmt.Fprintf(&buf, "\trpc.RegisterService(\"%s.%s\", service, options...)\n", packageName, *interfaceName)
+		fmt.Fprintf(&buf, "func Register%sService(h rpc.ServiceHolder, service %s, options ...rpc.Option) {\n", *interfaceName, *interfaceName)
+		fmt.Fprintf(&buf, "\th.AddService(\"%s.%s\", service, options...)\n", packageName, *interfaceName)
 		fmt.Fprintf(&buf, "}\n")
 		return false
 	})
@@ -105,8 +105,13 @@ func exprString(expr ast.Expr) string {
 
 func generateProxyClientMethod(buf *bytes.Buffer, packageName, interfaceName, clientName, methodName, req, res string) {
 	fmt.Fprintf(buf, "func (c *%s) %s(ctx context.Context, req %s, options ...rpc.Option) (%s, error) {\n", clientName, methodName, req, res)
-	fmt.Fprintf(buf, "\tvar res %s\n", res)
-	fmt.Fprintf(buf, "\tconn := c.h.GetConnByPeer(c.peer)\n\tif conn == nil {\n\t\treturn res, fmt.Errorf(\"c.peer connection not found\")\n\t}\n")
+
+	resValueType := res
+	if res[0] == '*' {
+		resValueType = res[1:]
+	}
+	fmt.Fprintf(buf, "\tvar res = &%s{}\n", resValueType)
+	fmt.Fprintf(buf, "\tconn := c.h.GetConnByPeer(c.peer)\n\tif conn == nil {\n\t\treturn nil, fmt.Errorf(\"connection %%s not found\", c.peer)\n\t}\n")
 	fmt.Fprintf(buf, "\tproxy := conn.GetProxy(\"%s.%s.%s\")\n", packageName, interfaceName, methodName)
 	fmt.Fprintf(buf, "\terr := proxy.Call(ctx, req, res, options...)\n")
 	fmt.Fprintf(buf, "\treturn res, err\n")

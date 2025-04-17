@@ -17,10 +17,10 @@ func NewChatRoomClient(h rpc.ServiceHolder, peer string) *ChatRoomClient {
 }
 
 func (c *ChatRoomClient) SendMessage(ctx context.Context, req *ChatRequest, options ...rpc.Option) (*ChatResponse, error) {
-	var res *ChatResponse
+	var res = &ChatResponse{}
 	conn := c.h.GetConnByPeer(c.peer)
 	if conn == nil {
-		return res, fmt.Errorf("c.peer connection not found")
+		return nil, fmt.Errorf("connection %s not found", c.peer)
 	}
 	proxy := conn.GetProxy("service.ChatRoom.SendMessage")
 	err := proxy.Call(ctx, req, res, options...)
@@ -28,16 +28,16 @@ func (c *ChatRoomClient) SendMessage(ctx context.Context, req *ChatRequest, opti
 }
 
 func (c *ChatRoomClient) ReceiveMessage(ctx context.Context, req *ChatRequest, options ...rpc.Option) (*ChatResponse, error) {
-	var res *ChatResponse
+	var res = &ChatResponse{}
 	conn := c.h.GetConnByPeer(c.peer)
 	if conn == nil {
-		return res, fmt.Errorf("c.peer connection not found")
+		return nil, fmt.Errorf("connection %s not found", c.peer)
 	}
 	proxy := conn.GetProxy("service.ChatRoom.ReceiveMessage")
 	err := proxy.Call(ctx, req, res, options...)
 	return res, err
 }
 
-func RegisterChatRoomService(service ChatRoom, options ...rpc.Option) {
-	rpc.RegisterService("service.ChatRoom", service, options...)
+func RegisterChatRoomService(h rpc.ServiceHolder, service ChatRoom, options ...rpc.Option) {
+	h.AddService("service.ChatRoom", service, options...)
 }
