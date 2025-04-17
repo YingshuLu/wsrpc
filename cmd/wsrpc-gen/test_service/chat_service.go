@@ -13,7 +13,7 @@ type ChatResponse struct {
 	Error   string `json:"error"`
 }
 
-type ChatService interface {
+type ChatRoom interface {
 	SendMessage(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
 	ReceiveMessage(ctx context.Context, req *ChatRequest) (*ChatResponse, error)
 }
