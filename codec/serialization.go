@@ -7,10 +7,11 @@ const (
 	None Type = iota
 	Protobuf
 	Json
+	MessagePack
 	Unknown
 )
 
-var stringTypes = []string{"none", "protobuf", "json"}
+var stringTypes = []string{"none", "protobuf", "json", "messagepack"}
 
 type Type uint8
 
@@ -31,6 +32,8 @@ func TypeOf(serializationType string) Type {
 		return Protobuf
 	case "json":
 		return Json
+	case "messagepack":
+		return MessagePack
 	default:
 		return None
 	}
@@ -42,8 +45,9 @@ type Serializer interface {
 }
 
 var serializers = map[string]Serializer{
-	"json":     &JSONSerialization{},
-	"protobuf": &ProtobufSerialization{},
+	"json":        &JSONSerialization{},
+	"protobuf":    &ProtobufSerialization{},
+	"messagepack": &MessagePackSerialization{},
 }
 
 func RegisterSerializer(serializationType string, s Serializer) {
